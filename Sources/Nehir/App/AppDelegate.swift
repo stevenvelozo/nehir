@@ -149,6 +149,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings.ipcEnabled = false
         }
 
+        // >>> NEHIR-SHELL SEAM — fork extension entry point (see Sources/NehirShell).
+        // No-op unless the NehirShell layer installed a handler at launch.
+        NehirShellHook.activate?(controller, settings)
+        // <<< NEHIR-SHELL SEAM
+
         if willShowOnboarding {
             DispatchQueue.main.async {
                 OnboardingWindowController.shared.show(settings: settings, onboardingStore: onboardingStore)

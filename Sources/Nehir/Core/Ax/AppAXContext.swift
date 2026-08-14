@@ -115,6 +115,9 @@ final class AppAXContext {
 
     @MainActor static var onWindowDestroyed: ((pid_t, Int) -> Void)?
     @MainActor static var onWindowMiniaturized: ((pid_t, Int) -> Void)?
+    // NEHIR minimize: fires when a window is deminiaturized (restored from the Dock),
+    // the symmetric counterpart of onWindowMiniaturized, so the layout can re-tile it.
+    @MainActor static var onWindowDeminiaturized: ((pid_t, Int) -> Void)?
     @MainActor static var onFocusedWindowChanged: ((pid_t) -> Void)?
 
     /// Bounded ring of every AX notification the per-app observers deliver,
@@ -354,6 +357,26 @@ final class AppAXContext {
         }
     }
 
+    // NEHIR minimize: deminiaturize counterpart of handleWindowMiniaturizedCallback.
+    nonisolated static func handleWindowDeminiaturizedCallback(
+        pid: pid_t,
+        refcon: UnsafeMutableRawPointer?,
+        handler: (@MainActor @Sendable (pid_t, Int) -> Void)? = nil
+    ) {
+        guard let windowId = destroyNotificationWindowId(from: refcon) else {
+            assertionFailure("Received AX deminiaturize callback without a valid windowId refcon")
+            return
+        }
+
+        scheduleOnMainRunLoop {
+            if let handler {
+                handler(pid, windowId)
+            } else {
+                AppAXContext.onWindowDeminiaturized?(pid, windowId)
+            }
+        }
+    }
+
     private nonisolated static func addWindowNotifications(
         observer: AXObserver,
         element: AXUIElement,
@@ -372,6 +395,13 @@ final class AppAXContext {
             kAXWindowMiniaturizedNotification as CFString,
             refcon
         )
+        // NEHIR minimize: also observe deminiaturize so a restored window re-tiles.
+        AXObserverAddNotification(
+            observer,
+            element,
+            kAXWindowDeminiaturizedNotification as CFString,
+            refcon
+        )
         return destroyResult == .success
     }
 
@@ -388,6 +418,12 @@ final class AppAXContext {
             observer,
             element,
             kAXWindowMiniaturizedNotification as CFString
+        )
+        // NEHIR minimize: symmetric teardown of the deminiaturize subscription.
+        AXObserverRemoveNotification(
+            observer,
+            element,
+            kAXWindowDeminiaturizedNotification as CFString
         )
     }
 
@@ -955,12 +991,16 @@ private func axWindowNotificationCallback(
 
     let isDestroyed = notificationName == (kAXUIElementDestroyedNotification as String)
     let isMiniaturized = notificationName == (kAXWindowMiniaturizedNotification as String)
-    guard isDestroyed || isMiniaturized else { return }
+    // NEHIR minimize: route deminiaturize alongside destroy/miniaturize.
+    let isDeminiaturized = notificationName == (kAXWindowDeminiaturizedNotification as String)
+    guard isDestroyed || isMiniaturized || isDeminiaturized else { return }
 
     if isDestroyed {
         AppAXContext.handleWindowDestroyedCallback(pid: pid, refcon: refcon)
-    } else {
+    } else if isMiniaturized {
         AppAXContext.handleWindowMiniaturizedCallback(pid: pid, refcon: refcon)
+    } else {
+        AppAXContext.handleWindowDeminiaturizedCallback(pid: pid, refcon: refcon)
     }
 }
 

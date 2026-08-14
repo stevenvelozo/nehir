@@ -2686,7 +2686,11 @@ final class WorkspaceManager {
     }
 
     func tiledEntries(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
+        // NEHIR minimize: a minimized window keeps `.tiling` mode but is excluded from
+        // the tiled flow — the relayout's window-removal pass then drops its engine node
+        // and the remaining columns pack. Restored by clearing the reason on deminiaturize.
         windows.windows(in: workspace, mode: .tiling)
+            .filter { $0.layoutReason != .macosMinimized }
     }
 
     func barVisibleEntries(
@@ -2863,7 +2867,9 @@ final class WorkspaceManager {
     }
 
     func allTiledEntries() -> [WindowModel.Entry] {
+        // NEHIR minimize: exclude minimized windows from the tiled flow (see tiledEntries).
         windows.allEntries(mode: .tiling)
+            .filter { $0.layoutReason != .macosMinimized }
     }
 
     func allFloatingEntries() -> [WindowModel.Entry] {
@@ -3351,7 +3357,10 @@ final class WorkspaceManager {
                 )
             )
         case .standard,
-             .macosHiddenApp:
+             .macosHiddenApp,
+             // NEHIR minimize: a minimized window is excluded like a hidden app, and
+             // is likewise not a native-fullscreen transition.
+             .macosMinimized:
             recordReconcileEvent(
                 .nativeFullscreenTransition(
                     token: token,

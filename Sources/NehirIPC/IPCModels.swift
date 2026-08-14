@@ -110,6 +110,7 @@ public enum IPCLayoutReason: String, Codable, Equatable, Sendable {
     case standard
     case macosHiddenApp = "macos-hidden-app"
     case nativeFullscreen = "native-fullscreen"
+    case macosMinimized = "macos-minimized" // NEHIR minimize
 }
 
 public enum IPCManualWindowOverride: String, Codable, Equatable, Sendable {

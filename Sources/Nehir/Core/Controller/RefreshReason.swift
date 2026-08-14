@@ -74,6 +74,11 @@ enum RefreshReason: String, CaseIterable, Sendable {
     case appHidden
     case appUnhidden
     case overviewMutation
+    // NEHIR minimize: a window entered/left the tiled flow via miniaturize/deminiaturize.
+    // Needs a relayout (not a visibility refresh) so the window-removal/insert pass runs
+    // and the columns repack.
+    case windowMinimized
+    case windowDeminimized
 }
 
 extension RefreshReason {
@@ -110,7 +115,11 @@ extension RefreshReason {
         .appHidden: .init(route: .visibilityRefresh),
         .appUnhidden: .init(route: .visibilityRefresh),
 
-        .windowDestroyed: .init(route: .windowRemoval)
+        .windowDestroyed: .init(route: .windowRemoval),
+
+        // NEHIR minimize: relayout the affected workspace so columns pack/unpack.
+        .windowMinimized: .init(route: .relayout),
+        .windowDeminimized: .init(route: .relayout)
     ]
 
     static var hasCompleteRoutingTable: Bool {

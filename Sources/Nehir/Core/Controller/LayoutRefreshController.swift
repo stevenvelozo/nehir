@@ -487,6 +487,9 @@ import QuartzCore
         applySessionPatch(plan.sessionPatch)
         diffExecutor.execute(plan)
         applyAnimationDirectives(plan.animationDirectives)
+        // >>> NEHIR-SHELL SEAM — reapply Blades ordinal z-order after frames land.
+        NehirShellHook.didApplyWorkspaceLayout?(plan.workspaceId)
+        // <<< NEHIR-SHELL SEAM
     }
 
     private func executeRefreshExecutionPlan(_ plan: RefreshExecutionPlan) {
@@ -1564,7 +1567,7 @@ import QuartzCore
                 existingEntry: existingEntry,
                 facts: evaluation.facts
             )
-            let ruleEffects: ManagedWindowRuleEffects
+            var ruleEffects: ManagedWindowRuleEffects
             if let existingEntry {
                 if shouldPreservePreFullscreenState {
                     _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: existingEntry.token)
@@ -1583,8 +1586,19 @@ import QuartzCore
                 wsForWindow = existingAssignment ?? defaultWorkspace
                 ruleEffects = evaluatedRuleEffects
             }
+            // >>> NEHIR-SHELL SEAM — fork-configured forced column width (percent→points)
+            if let override = NehirShellHook.overrideRuleEffects {
+                ruleEffects = override(ruleEffects, token, wsForWindow)
+            }
+            // <<< NEHIR-SHELL SEAM
             let oldMode = existingEntry?.mode
-            let admittedMode = oldMode ?? trackedMode
+            // >>> NEHIR-SHELL SEAM — Free layout: a newly admitted window opens floating.
+            let admittedMode: TrackedWindowMode = if NehirShellHook.layoutMode == .free, oldMode == nil {
+                .floating
+            } else {
+                oldMode ?? trackedMode
+            }
+            // <<< NEHIR-SHELL SEAM
             let parentWindowId = if let windowServer = evaluation.facts.windowServer {
                 windowServer.parentId == 0 ? nil : windowServer.parentId
             } else {

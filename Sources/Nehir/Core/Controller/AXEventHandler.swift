@@ -5809,9 +5809,42 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     func handleWindowMiniaturized(pid: pid_t, windowId: Int) {
-        controller?.clearKeyboardFocusTarget(
-            matching: WindowToken(pid: pid, windowId: windowId),
-            pid: pid
+        let token = WindowToken(pid: pid, windowId: windowId)
+        controller?.clearKeyboardFocusTarget(matching: token, pid: pid)
+        // NEHIR minimize: drop the miniaturized window from the tiled flow so its
+        // column packs (mirrors app-hide), restored on deminiaturize. Scoped to
+        // tiling windows whose reason is still standard, so we never clobber an
+        // existing exclusion (hidden app / native fullscreen) or disturb floats —
+        // those don't leave a column gap and base already handles their restore.
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: token),
+              entry.mode == .tiling,
+              controller.workspaceManager.layoutReason(for: token) == .standard
+        else { return }
+        controller.workspaceManager.setLayoutReason(.macosMinimized, for: token)
+        // A relayout (not a visibility refresh) is required: it runs the window-removal
+        // pass that drops the now-excluded window's engine node so the columns pack.
+        controller.layoutRefreshController.requestRefresh(
+            reason: .windowMinimized,
+            affectedWorkspaceIds: [entry.workspaceId]
+        )
+    }
+
+    // NEHIR minimize: restore a window we excluded on miniaturize back into the tiled
+    // flow when it is deminiaturized (restored from the Dock). Symmetric with
+    // handleWindowMiniaturized; only touches windows we ourselves marked
+    // `.macosMinimized`, so an app-hidden or native-fullscreen window is left alone.
+    func handleWindowDeminiaturized(pid: pid_t, windowId: Int) {
+        let token = WindowToken(pid: pid, windowId: windowId)
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: token),
+              controller.workspaceManager.layoutReason(for: token) == .macosMinimized
+        else { return }
+        _ = controller.workspaceManager.restoreFromNativeState(for: token)
+        // Relayout so the restored window is re-inserted into the tiled flow.
+        controller.layoutRefreshController.requestRefresh(
+            reason: .windowDeminimized,
+            affectedWorkspaceIds: [entry.workspaceId]
         )
     }
 

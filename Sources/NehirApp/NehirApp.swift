@@ -6,6 +6,7 @@
 
 import AppKit
 @testable import Nehir
+import NehirShell // NEHIR-SHELL SEAM — fork extension layer (see Sources/NehirShell).
 import SwiftUI
 
 @main
@@ -17,6 +18,9 @@ struct NehirApp: App {
         let bootstrap = AppBootstrapState()
         _bootstrap = State(wrappedValue: bootstrap)
         AppDelegate.sharedBootstrap = bootstrap
+        // >>> NEHIR-SHELL SEAM — register the fork extension layer before bootstrap.
+        NehirShell.install()
+        // <<< NEHIR-SHELL SEAM
     }
 
     var body: some Scene {

@@ -96,6 +96,10 @@ final class ServiceLifecycleManager {
         AppAXContext.onWindowMiniaturized = { [weak controller] pid, windowId in
             controller?.axEventHandler.handleWindowMiniaturized(pid: pid, windowId: windowId)
         }
+        // NEHIR minimize: restore a deminiaturized window back into the tiled flow.
+        AppAXContext.onWindowDeminiaturized = { [weak controller] pid, windowId in
+            controller?.axEventHandler.handleWindowDeminiaturized(pid: pid, windowId: windowId)
+        }
         AppAXContext.onFocusedWindowChanged = { [weak controller] pid in
             controller?.axEventHandler.handleAppActivation(
                 pid: pid,
@@ -557,6 +561,7 @@ final class ServiceLifecycleManager {
 
         AppAXContext.onWindowDestroyed = nil
         AppAXContext.onWindowMiniaturized = nil
+        AppAXContext.onWindowDeminiaturized = nil // NEHIR minimize
         AppAXContext.onFocusedWindowChanged = nil
         controller.axManager.onAppLaunched = nil
         controller.axManager.onAppTerminated = nil

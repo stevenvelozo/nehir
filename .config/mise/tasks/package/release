@@ -52,7 +52,32 @@ cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/Nehir"
 cp "$CLI_EXECUTABLE" "$APP_DIR/Contents/MacOS/nehirctl"
 cp "$ROOT_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
-cp -R "$BUILD_DIR/Nehir_Nehir.bundle" "$APP_DIR/Contents/Resources/"
+# Copy every SwiftPM resource bundle (Nehir_Nehir, Nehir_FableCore, Nehir_NodeSidecar,
+# and any future resource-bearing target). Missing a bundle here makes Bundle.module
+# fatalError at launch, so glob rather than naming one bundle.
+for resource_bundle in "$BUILD_DIR"/*.bundle; do
+  [ -e "$resource_bundle" ] || continue
+  case "$resource_bundle" in
+    *Tests.bundle) continue ;;  # don't ship test fixtures in the release app
+  esac
+  cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/"
+done
+
+# NEHIR-SHELL SEAM — embed Sparkle.framework (auto-updater) and add its rpath so the
+# executable resolves @rpath/Sparkle.framework at launch. Sourced from the SwiftPM
+# binary-artifact cache. install_name_tool edits the binary, so it must precede signing.
+SPARKLE_FRAMEWORK="$(find "$ROOT_DIR/.build/artifacts" -type d -name Sparkle.framework -path '*macos*' 2>/dev/null | head -1)"
+[ -n "$SPARKLE_FRAMEWORK" ] || SPARKLE_FRAMEWORK="$(find "$ROOT_DIR/.build/artifacts" -type d -name Sparkle.framework 2>/dev/null | head -1)"
+if [ -z "$SPARKLE_FRAMEWORK" ]; then
+  echo "Sparkle.framework not found under .build/artifacts — did 'swift build' resolve Sparkle?" >&2
+  exit 1
+fi
+mkdir -p "$APP_DIR/Contents/Frameworks"
+cp -R "$SPARKLE_FRAMEWORK" "$APP_DIR/Contents/Frameworks/"
+# SwiftPM usually already adds this rpath; only add it if missing (avoid a duplicate).
+if ! otool -l "$APP_DIR/Contents/MacOS/Nehir" | grep -q "@executable_path/../Frameworks"; then
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_DIR/Contents/MacOS/Nehir"
+fi
 
 if command -v plutil >/dev/null 2>&1; then
   plutil -lint "$APP_DIR/Contents/Info.plist" >/dev/null
@@ -75,6 +100,14 @@ codesign_binary() {
 }
 
 echo "Signing $APP_DIR with identity: $CODESIGN_IDENTITY"
+# NEHIR-SHELL SEAM — sign Sparkle's nested code inside-out before the app seals it.
+SPARKLE_EMBEDDED="$APP_DIR/Contents/Frameworks/Sparkle.framework"
+sign_if_exists() { [ -e "$1" ] && codesign_binary "$1"; }
+sign_if_exists "$SPARKLE_EMBEDDED/Versions/B/XPCServices/Installer.xpc"
+sign_if_exists "$SPARKLE_EMBEDDED/Versions/B/XPCServices/Downloader.xpc"
+sign_if_exists "$SPARKLE_EMBEDDED/Versions/B/Updater.app"
+sign_if_exists "$SPARKLE_EMBEDDED/Versions/B/Autoupdate"
+codesign_binary "$SPARKLE_EMBEDDED"
 codesign_binary "$APP_DIR/Contents/MacOS/nehirctl"
 codesign_binary "$APP_DIR/Contents/MacOS/Nehir" --entitlements "$ENTITLEMENTS"
 codesign_binary "$APP_DIR" --entitlements "$ENTITLEMENTS"

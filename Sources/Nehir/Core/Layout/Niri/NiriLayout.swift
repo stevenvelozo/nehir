@@ -270,30 +270,48 @@ extension NiriLayoutEngine {
                 orientation: orientation
             )
             let renderedContainerRect: CGRect
-            switch containerVisibilityState(
-                for: visibilityRect,
-                viewportFrame: workingFrame,
-                fallback: idx == 0 ? .minimum : .maximum,
-                orientation: orientation,
-                hiddenPlacementMonitor: hiddenPlacementMonitor,
-                hiddenPlacementMonitors: hiddenPlacementMonitors
-            ) {
-            case .visible:
-                renderedContainerRect = visibilityRect
-            case let .hidden(hiddenEdge):
-                for window in containerWindowNodes[idx] {
-                    hiddenHandles[window.token] = hiddenEdge.encodedHideSide
-                }
-                renderedContainerRect = hiddenRenderedContainerRect(
-                    canonicalRect: canonicalContainerRect,
-                    edge: hiddenEdge,
-                    viewFrame: viewFrame,
-                    scale: effectiveScale,
+            // >>> NEHIR-SHELL SEAM — Blades: distribute columns edge-to-edge on screen,
+            // all visible, overriding the scrolling viewport position + culling. Horizontal
+            // orientation only for v1 (vertical falls through to the river behavior).
+            if NehirShellHook.layoutMode == .blades, orientation == .horizontal {
+                let bladesX = workingFrame.origin.x + NehirShellHook.bladesColumnX(
+                    index: idx,
+                    widths: containerSpans,
+                    workingWidth: workingFrame.width
+                )
+                renderedContainerRect = CGRect(
+                    x: bladesX,
+                    y: canonicalContainerRect.minY,
+                    width: canonicalContainerRect.width,
+                    height: canonicalContainerRect.height
+                )
+            } else {
+                switch containerVisibilityState(
+                    for: visibilityRect,
+                    viewportFrame: workingFrame,
+                    fallback: idx == 0 ? .minimum : .maximum,
                     orientation: orientation,
                     hiddenPlacementMonitor: hiddenPlacementMonitor,
                     hiddenPlacementMonitors: hiddenPlacementMonitors
-                )
+                ) {
+                case .visible:
+                    renderedContainerRect = visibilityRect
+                case let .hidden(hiddenEdge):
+                    for window in containerWindowNodes[idx] {
+                        hiddenHandles[window.token] = hiddenEdge.encodedHideSide
+                    }
+                    renderedContainerRect = hiddenRenderedContainerRect(
+                        canonicalRect: canonicalContainerRect,
+                        edge: hiddenEdge,
+                        viewFrame: viewFrame,
+                        scale: effectiveScale,
+                        orientation: orientation,
+                        hiddenPlacementMonitor: hiddenPlacementMonitor,
+                        hiddenPlacementMonitors: hiddenPlacementMonitors
+                    )
+                }
             }
+            // <<< NEHIR-SHELL SEAM
 
             layoutContainer(
                 container: containers[idx],
@@ -382,15 +400,20 @@ extension NiriLayoutEngine {
         ) else {
             return .hidden(defaultHideEdge)
         }
-        if let overflowEdge = overflowEdgeIntersectingNeighboringMonitor(
-            renderedRect,
-            viewportFrame: viewportFrame,
-            orientation: orientation,
-            hiddenPlacementMonitor: hiddenPlacementMonitor,
-            hiddenPlacementMonitors: hiddenPlacementMonitors
-        ) {
+        // >>> NEHIR-SHELL SEAM — when the fork `crossMonitorOverflow` config is on, keep a
+        // column that would spill onto a neighboring monitor VISIBLE (straddling the bezel)
+        // instead of hiding it. Off by default = upstream hide-on-neighbor behavior.
+        if !NehirShellHook.allowCrossMonitorOverflow,
+           let overflowEdge = overflowEdgeIntersectingNeighboringMonitor(
+               renderedRect,
+               viewportFrame: viewportFrame,
+               orientation: orientation,
+               hiddenPlacementMonitor: hiddenPlacementMonitor,
+               hiddenPlacementMonitors: hiddenPlacementMonitors
+           ) {
             return .hidden(overflowEdge)
         }
+        // <<< NEHIR-SHELL SEAM
         return .visible
     }
 

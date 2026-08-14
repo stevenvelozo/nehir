@@ -678,6 +678,8 @@ final class IPCQueryRouter {
             .macosHiddenApp
         case .nativeFullscreen:
             .nativeFullscreen
+        case .macosMinimized: // NEHIR minimize
+            .macosMinimized
         }
     }
 

@@ -10,6 +10,10 @@ enum LayoutReason: Codable, Equatable {
     case standard
     case macosHiddenApp
     case nativeFullscreen
+    // NEHIR minimize: a miniaturized window is excluded from the tiled flow (like a
+    // hidden app) so its column packs, and restored on deminiaturize. Distinct from
+    // macosHiddenApp so per-window minimize and per-app hide restore independently.
+    case macosMinimized
 }
 
 enum ParentKind: Codable, Equatable {

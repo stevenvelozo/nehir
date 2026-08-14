@@ -134,6 +134,32 @@
         "2026 Aleksei Gurianov and Nehir contributors"
       ],
       "fileComment": "Provenance=nehir-original; See=NOTICE.md"
+    },
+    {
+      "name": "NehirShell fork extension layer (Steven Velozo original; modern-LiteStep shell)",
+      "paths": [
+        "Sources/NehirShell/**/*.swift",
+        "Sources/NehirShellWire/**/*.swift",
+        "Sources/NehirShellCtl/**/*.swift",
+        "Sources/Nehir/App/NehirShellHook.swift"
+      ],
+      "license": "GPL-2.0-only",
+      "copyright": [
+        "2026 Steven Velozo"
+      ],
+      "fileComment": "Provenance=nehir-original; See=NOTICE.md"
+    },
+    {
+      "name": "FableCore fable/pict-in-Swift bridge (Steven Velozo original; JavaScriptCore host). Vendored Sources/FableCore/Resources/pict.min.js is third-party MIT from the retold ecosystem and is not an SPDX-managed source file.",
+      "paths": [
+        "Sources/FableCore/**/*.swift",
+        "Sources/NodeSidecar/**/*.swift"
+      ],
+      "license": "GPL-2.0-only",
+      "copyright": [
+        "2026 Steven Velozo"
+      ],
+      "fileComment": "Provenance=nehir-original; See=NOTICE.md"
     }
   ],
   "upstreamCommits": {

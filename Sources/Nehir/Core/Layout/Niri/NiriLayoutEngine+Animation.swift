@@ -339,7 +339,18 @@ extension NiriLayoutEngine {
         }
 
         let colX = columnX(at: colIdx)
-        let screenX = workingFrame.origin.x + colX + targetViewOffset + centeringOffset
+        // >>> NEHIR-SHELL SEAM — Blades layout: overlap columns, distributed edge-to-edge,
+        // instead of the scrolling column positions. Same columns/widths, new X only.
+        let screenX: CGFloat = if NehirShellHook.layoutMode == .blades {
+            workingFrame.origin.x + NehirShellHook.bladesColumnX(
+                index: colIdx,
+                widths: cols.map(\.cachedWidth),
+                workingWidth: workingFrame.width
+            )
+        } else {
+            workingFrame.origin.x + colX + targetViewOffset + centeringOffset
+        }
+        // <<< NEHIR-SHELL SEAM
 
         let isEffectivelyTabbed = column.isEffectivelyTabbed
         let tabOffset = isEffectivelyTabbed ? renderStyle.tabIndicatorWidth : 0

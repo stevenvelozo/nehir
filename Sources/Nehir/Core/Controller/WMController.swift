@@ -3552,7 +3552,7 @@ final class WMController {
             }
 
             let oldEffects = existingEntry?.ruleEffects ?? .none
-            let effectiveRuleEffects = ruleEffectsPreservingExistingAutomaticStickySource(
+            var effectiveRuleEffects = ruleEffectsPreservingExistingAutomaticStickySource(
                 evaluation.decision.ruleEffects,
                 existingEntry: existingEntry,
                 facts: evaluation.facts
@@ -3629,6 +3629,14 @@ final class WMController {
                 )
             }
 
+            // >>> NEHIR-SHELL SEAM — fork-configured forced column width (percent→points).
+            // Mirrors the startup-rescan seam in LayoutRefreshController so a rule
+            // configured live (via the Deck's Configure flow) applies on THIS re-admission
+            // path too — not only on a full rescan / relaunch. token + workspaceId in scope.
+            if let override = NehirShellHook.overrideRuleEffects {
+                effectiveRuleEffects = override(effectiveRuleEffects, token, workspaceId)
+            }
+            // <<< NEHIR-SHELL SEAM
             _ = workspaceManager.addWindow(
                 axRef,
                 pid: token.pid,
