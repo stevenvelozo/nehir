@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nehir — a scrolling window manager for macOS</title>
+<style>
+  :root {
+    --bg: #0c0f14;
+    --panel: #141922;
+    --panel-2: #1b212c;
+    --border: #263041;
+    --text: #e6edf3;
+    --muted: #9aa7b6;
+    --accent: #4fb2ff;
+    --accent-dim: #295a80;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 600px at 70% -10%, #16202e 0%, var(--bg) 55%) fixed;
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px 80px; }
+
+  header { padding: 64px 0 28px; }
+  .logo { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; }
+  .logo .dot { color: var(--accent); }
+  .tag { color: var(--muted); font-size: 18px; margin-top: 6px; }
+  .btnrow { margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-block; padding: 11px 18px; border-radius: 10px;
+    background: var(--accent); color: #05121d; font-weight: 700; border: 1px solid var(--accent);
+  }
+  .btn:hover { text-decoration: none; filter: brightness(1.08); }
+  .btn.secondary { background: transparent; color: var(--text); border-color: var(--border); font-weight: 600; }
+  .ver { color: var(--muted); font-size: 13px; font-family: var(--mono); }
+
+  section { margin-top: 40px; }
+  h2 { font-size: 20px; margin: 0 0 14px; letter-spacing: -0.01em; }
+  h2 .hash { color: var(--accent-dim); }
+  p { color: var(--text); }
+  .muted { color: var(--muted); }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 620px) { .grid { grid-template-columns: 1fr; } }
+  kbd {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+    border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px;
+    padding: 1px 6px; color: var(--text);
+  }
+  ul.feat { list-style: none; padding: 0; margin: 0; }
+  ul.feat li { padding: 7px 0; border-bottom: 1px solid var(--border); }
+  ul.feat li:last-child { border-bottom: 0; }
+  ul.feat .k { display: inline-block; min-width: 118px; }
+
+  /* Releases */
+  #releases .rel { border: 1px solid var(--border); border-radius: 14px; background: var(--panel); padding: 18px 20px; margin-bottom: 14px; }
+  .rel .rhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .rel .rname { font-size: 17px; font-weight: 700; }
+  .rel .rdate { color: var(--muted); font-size: 13px; font-family: var(--mono); }
+  .rel .badge { font-size: 11px; font-weight: 700; color: #05121d; background: var(--accent); border-radius: 999px; padding: 2px 9px; margin-left: 8px; vertical-align: middle; }
+  .rel .notes { color: var(--muted); white-space: pre-wrap; margin: 12px 0 14px; font-size: 14px; }
+  .assets { display: flex; gap: 10px; flex-wrap: wrap; }
+  .assets a { font-family: var(--mono); font-size: 13px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; color: var(--text); }
+  .assets a:hover { border-color: var(--accent-dim); text-decoration: none; }
+  .loading, .error { color: var(--muted); }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">Nehir<span class="dot">.</span></div>
+    <div class="tag">A scrolling tiling window manager for macOS.</div>
+    <div class="btnrow">
+      <a class="btn" id="dl" href="https://github.com/stevenvelozo/nehir/releases/latest">Download latest</a>
+      <a class="btn secondary" href="https://github.com/stevenvelozo/nehir">Source on GitHub</a>
+      <span class="ver" id="latest-ver"></span>
+    </div>
+  </header>
+
+  <section id="about">
+    <h2><span class="hash">#</span> About</h2>
+    <p>Nehir manages your windows as <strong>scrolling columns</strong> rather than a fixed grid —
+    windows live on an endless horizontal strip you scroll and jump through, so you always have room
+    for one more without rearranging everything. It builds a fork-safe “shell” layer on top of a
+    niri-style engine, centered on the <strong>Control Deck</strong>: one keyboard chord
+    (<kbd>⌘D</kbd>) that drives everything.</p>
+  </section>
+
+  <section id="start">
+    <h2><span class="hash">#</span> Getting started</h2>
+    <div class="card">
+      <p style="margin-top:0"><strong>1.</strong> Download the latest <code>.pkg</code> above and open it
+      (or unzip the <code>.zip</code> and drag <code>Nehir.app</code> into <code>Applications</code>).</p>
+      <p><strong>2.</strong> Launch Nehir, then grant it <strong>Accessibility</strong> access when prompted
+      (System Settings → Privacy &amp; Security → Accessibility). Window management needs it.</p>
+      <p style="margin-bottom:0"><strong>3.</strong> Press <kbd>⌘D</kbd> to open the Control Deck. That's the
+      hub for everything below.</p>
+    </div>
+    <p class="muted" style="font-size:13px">Requires macOS 15+. Signed with a Developer ID and notarized by Apple.</p>
+  </section>
+
+  <section id="deck">
+    <h2><span class="hash">#</span> The Control Deck <span class="muted" style="font-weight:400;font-size:14px">(<kbd>⌘D</kbd>)</span></h2>
+    <ul class="feat">
+      <li><span class="k"><kbd>1</kbd>…<kbd>0</kbd></span> jump to a column (numbers overlay each window)</li>
+      <li><span class="k"><kbd>⌘</kbd>+<kbd>digit</kbd></span> send the current window to that position</li>
+      <li><span class="k">Focus / Move</span> step focus or shuffle windows around</li>
+      <li><span class="k">Width &amp; grid</span> width presets and a keyboard/mouse resize grid</li>
+      <li><span class="k">Configure</span> pin a per-window minimum width or float rule</li>
+      <li><span class="k">Layout</span> switch families — River, Blades, or Free (all-floating)</li>
+      <li><span class="k">Display</span> toggle menu-bar / Dock auto-hide, scroll bars, and more, live</li>
+    </ul>
+  </section>
+
+  <section id="releases">
+    <h2><span class="hash">#</span> Releases</h2>
+    <div id="rel-list"><p class="loading">Loading releases…</p></div>
+  </section>
+
+  <footer>
+    Nehir is free software under the <a href="https://github.com/stevenvelozo/nehir/blob/main/LICENSE">GPL-2.0</a> license.
+    Not affiliated with Apple. · <a href="https://github.com/stevenvelozo/nehir">github.com/stevenvelozo/nehir</a>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  var REPO = "stevenvelozo/nehir";
+  var list = document.getElementById("rel-list");
+
+  function fmtDate(iso) {
+    try { return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
+    catch (e) { return iso || ""; }
+  }
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+
+  function assetLinks(assets) {
+    if (!assets || !assets.length) return "";
+    return '<div class="assets">' + assets.map(function (a) {
+      var mb = a.size ? " (" + (a.size / 1048576).toFixed(1) + " MB)" : "";
+      return '<a href="' + esc(a.browser_download_url) + '">↓ ' + esc(a.name) + mb + "</a>";
+    }).join("") + "</div>";
+  }
+
+  function render(releases) {
+    releases = (releases || []).filter(function (r) { return !r.draft; });
+    if (!releases.length) { list.innerHTML = '<p class="muted">No releases yet.</p>'; return; }
+
+    // Wire the hero button to the newest .pkg (fallback keeps /releases/latest).
+    var newest = releases[0];
+    var verEl = document.getElementById("latest-ver");
+    if (verEl) verEl.textContent = newest.tag_name + " · " + fmtDate(newest.published_at);
+    var pkg = (newest.assets || []).filter(function (a) { return /\.pkg$/i.test(a.name); })[0];
+    if (pkg) document.getElementById("dl").setAttribute("href", pkg.browser_download_url);
+
+    list.innerHTML = releases.map(function (r, i) {
+      var name = r.name && r.name.trim() ? r.name : r.tag_name;
+      var latest = i === 0 ? '<span class="badge">latest</span>' : "";
+      var notes = r.body && r.body.trim() ? '<div class="notes">' + esc(r.body.trim()) + "</div>" : "";
+      return '<div class="rel">' +
+        '<div class="rhead"><div class="rname">' + esc(name) + latest + "</div>" +
+        '<div class="rdate">' + fmtDate(r.published_at) + "</div></div>" +
+        notes + assetLinks(r.assets) + "</div>";
+    }).join("");
+  }
+
+  fetch("https://api.github.com/repos/" + REPO + "/releases")
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(render)
+    .catch(function () {
+      list.innerHTML = '<p class="error">Couldn\'t load the release list right now — ' +
+        '<a href="https://github.com/' + REPO + '/releases">view releases on GitHub</a>.</p>';
+    });
+})();
+</script>
+</body>
+</html>
