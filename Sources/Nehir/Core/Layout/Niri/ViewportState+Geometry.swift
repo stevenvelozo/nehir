@@ -78,6 +78,38 @@ struct ViewportSnapContext {
     let viewportWidth: CGFloat
     let snapPoints: [SnapPoint]
     let intentionallyDoesNotFillViewport: Bool
+    // NEHIR-SHELL SEAM — multi-monitor inner-edge detent (Phase 2a). True when another
+    // display abuts this strip's right (neighbor-facing) edge, so a column resting past
+    // that edge would straddle onto it — which macOS cannot composite and Gate B culls.
+    var rightEdgeHasNeighbor: Bool = false
+
+    // >>> NEHIR-SHELL SEAM — multi-monitor inner-edge detent (Phase 2a).
+    /// Semantic A: keep the rightmost column flush at the neighbor-facing bezel so it never
+    /// rests straddling. If the resting `viewStart` would leave a column crossing the right
+    /// viewport edge (the bezel), shift the view right so that column's trailing edge sits at
+    /// the bezel — earlier columns then clip at the outer (neighbor-free) edge, which renders.
+    /// No-op unless a right neighbor exists, so single-monitor and outer edges are untouched.
+    func viewStartAvoidingRightStraddle(_ viewStart: CGFloat) -> CGFloat {
+        guard rightEdgeHasNeighbor, viewportWidth > 0 else { return viewStart }
+        let tolerance: CGFloat = 0.5
+        let viewportRight = viewStart + viewportWidth
+        var columnStart: CGFloat = 0
+        var adjusted = viewStart
+        for column in columns {
+            let width = max(0, column.effectiveViewportWidth)
+            let columnEnd = columnStart + width
+            if width > 0,
+               columnStart < viewportRight - tolerance,
+               columnEnd > viewportRight + tolerance
+            {
+                // This column straddles the bezel — flush its trailing edge to it.
+                adjusted = columnEnd - viewportWidth
+            }
+            columnStart = columnEnd + gap
+        }
+        return adjusted
+    }
+    // <<< NEHIR-SHELL SEAM
 
     func currentViewStart(in state: ViewportState) -> CGFloat {
         state.targetViewPosPixels(columns: columns, gap: gap)
@@ -651,7 +683,8 @@ extension ViewportState {
         gap: CGFloat,
         viewportWidth: CGFloat,
         pixelTolerance: CGFloat = 0.5,
-        intentionallyDoesNotFillViewport: Bool = false
+        intentionallyDoesNotFillViewport: Bool = false,
+        rightEdgeHasNeighbor: Bool = false // NEHIR-SHELL SEAM — inner-edge detent (Phase 2a)
     ) -> ViewportSnapContext {
         ViewportSnapContext(
             columns: columns,
@@ -663,7 +696,8 @@ extension ViewportState {
                 viewportWidth: viewportWidth,
                 pixelTolerance: pixelTolerance
             ),
-            intentionallyDoesNotFillViewport: intentionallyDoesNotFillViewport
+            intentionallyDoesNotFillViewport: intentionallyDoesNotFillViewport,
+            rightEdgeHasNeighbor: rightEdgeHasNeighbor // NEHIR-SHELL SEAM
         )
     }
 

@@ -188,6 +188,10 @@ extension NiriLayoutEngine {
         }
 
         guard let targetSnap else { return false }
+        // NEHIR-SHELL SEAM — inner-edge detent (Phase 2a): the resting-flush clamp lives in the
+        // resize path for now; applying it here (navigation reveal) needs an active-column
+        // preservation guard first, or flushing a right straddler can push the column being
+        // revealed back off-screen. Tracked as follow-up.
         let targetOffset = context.targetOffset(for: targetSnap, in: state)
         guard abs(targetOffset - state.viewOffsetPixels.target()) > pixel else { return false }
 
@@ -318,11 +322,19 @@ extension NiriLayoutEngine {
         viewportWidth: CGFloat? = nil,
         intentionallyDoesNotFillViewport: Bool = false
     ) -> ViewportSnapContext {
-        state.snapContext(
+        // NEHIR-SHELL SEAM — multi-monitor inner-edge detent (Phase 2a). A right neighbor
+        // exists when another display's frame abuts this working area's right edge with some
+        // vertical overlap. The current monitor is excluded naturally (its own minX != maxX).
+        let rightEdgeHasNeighbor = monitors.values.contains { monitor in
+            abs(monitor.frame.minX - workingFrame.maxX) < 2.0
+                && min(monitor.frame.maxY, workingFrame.maxY) - max(monitor.frame.minY, workingFrame.minY) > 0
+        }
+        return state.snapContext(
             columns: columns,
             gap: gaps,
             viewportWidth: viewportWidth ?? workingFrame.width,
-            intentionallyDoesNotFillViewport: intentionallyDoesNotFillViewport
+            intentionallyDoesNotFillViewport: intentionallyDoesNotFillViewport,
+            rightEdgeHasNeighbor: rightEdgeHasNeighbor
         )
     }
 

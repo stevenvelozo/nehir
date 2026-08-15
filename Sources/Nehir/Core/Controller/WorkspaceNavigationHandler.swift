@@ -31,6 +31,11 @@ final class WorkspaceNavigationHandler {
         /// Used by the workspace-bar "Move to Workspace" action, which is an
         /// explicit-token move the user performs without leaving their workspace.
         case staySource
+        // NEHIR-SHELL SEAM — multi-monitor edge-handoff (Case 3, drag re-admission).
+        /// Always follow focus to the target and reveal the window, whatever the
+        /// setting says. A manual bezel drag is direct manipulation — the user is
+        /// looking at the window they dropped, so it must land visible and focused.
+        case followTarget
     }
 
     private func applySessionPatch(
@@ -986,6 +991,45 @@ final class WorkspaceNavigationHandler {
         return true
     }
 
+    // >>> NEHIR-SHELL SEAM — multi-monitor edge-handoff (Case 3, drag re-admission).
+    /// Re-admits a window a manual bezel drag has carried onto another display: transfers it
+    /// into the target workspace's engine tree (so it becomes a real tiled column rather than
+    /// a floating orphan) and always follows focus + reveals it, because the user dropped it
+    /// there and is looking at it. If the window is already on the target workspace (e.g. a
+    /// native app-activation path moved it first but left it parked off-screen behind a
+    /// full-width column), this skips the transfer and just reveals + focuses it in place.
+    @discardableResult
+    func readmitDraggedWindow(handle: WindowHandle, toWorkspaceId targetWsId: WorkspaceDescriptor.ID) -> Bool {
+        guard let controller else { return false }
+        let token = handle.id
+        let currentWorkspaceId = controller.workspaceManager.workspace(for: token)
+
+        var sourceWorkspaceId: WorkspaceDescriptor.ID?
+        if currentWorkspaceId != targetWsId {
+            let transferResult = transferWindowFromSourceEngine(
+                token: token,
+                from: currentWorkspaceId,
+                to: targetWsId
+            )
+            guard transferResult.succeeded else { return false }
+            controller.reassignManagedWindow(token, to: targetWsId)
+            sourceWorkspaceId = transferResult.sourceWorkspaceId ?? currentWorkspaceId
+        }
+
+        finishWorkspaceMove(
+            followToken: token,
+            sourceWorkspaceId: sourceWorkspaceId,
+            sourceFocusNodeId: sourceWorkspaceId.flatMap {
+                controller.workspaceManager.niriViewportState(for: $0).selectedNodeId
+            },
+            targetWorkspaceId: targetWsId,
+            prepareTargetViewport: true,
+            focusPolicy: .followTarget
+        )
+        return true
+    }
+    // <<< NEHIR-SHELL SEAM
+
     /// Post-layout handoff that focuses the moved window on its new workspace,
     /// but only if that workspace is still the visible one on its monitor and
     /// the window is still assigned to it once layout has settled.
@@ -1065,8 +1109,9 @@ final class WorkspaceNavigationHandler {
             }
         }
 
-        let shouldFollowFocus = focusPolicy == .configured
-            && controller.settings.focusFollowsWindowToMonitor
+        let shouldFollowFocus = (focusPolicy == .configured
+            && controller.settings.focusFollowsWindowToMonitor)
+            || focusPolicy == .followTarget // NEHIR-SHELL SEAM — drag re-admission always reveals
         let postLayout: LayoutRefreshController.PostLayoutAction
 
         if shouldFollowFocus {

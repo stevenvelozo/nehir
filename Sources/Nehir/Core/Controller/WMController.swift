@@ -884,6 +884,22 @@ final class WMController {
         return moved ? .executed : .notFound
     }
 
+    // >>> NEHIR-SHELL SEAM — multi-monitor edge-handoff (Case 3, drag re-admission).
+    /// Re-admits a manually-dragged window into `toWorkspaceId` as a real tiled column,
+    /// revealing + focusing it on the target display. Backs `AXEventHandler`'s cross-monitor
+    /// drag-settle handler. Also reveals-in-place when the window is already on the target.
+    @discardableResult
+    func readmitDraggedWindow(token: WindowToken, toWorkspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let entry = workspaceManager.entry(for: token) else {
+            return false
+        }
+        return workspaceNavigationHandler.readmitDraggedWindow(
+            handle: entry.handle,
+            toWorkspaceId: toWorkspaceId
+        )
+    }
+    // <<< NEHIR-SHELL SEAM
+
     @discardableResult
     func activateScratchpadFromBar(on monitorId: Monitor.ID?) -> ExternalCommandResult {
         guard let scratchpadToken = workspaceManager.scratchpadToken() else {

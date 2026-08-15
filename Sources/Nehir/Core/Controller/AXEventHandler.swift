@@ -1121,6 +1121,14 @@ final class AXEventHandler: CGSEventDelegate {
     private static let stabilizationRetryDelay: Duration = .milliseconds(100)
     private static let untrackedActivationRetryDelay: Duration = .milliseconds(300)
     private static let postCreateLifecycleVerificationDelay: Duration = .milliseconds(75)
+    // >>> NEHIR-SHELL SEAM — multi-monitor edge-handoff (Case 3, drag re-admission).
+    // Quiescence window after the last observed frame change before re-admitting a
+    // cross-monitor-dragged tiled window. A manual drag emits a continuous stream of
+    // frame-change events; each one reschedules the settle, so re-admission fires once,
+    // ~this long after the pointer stops (drag released) — not per frame. Long enough to
+    // outlast the inter-event gap of a moving drag, short enough to feel immediate on drop.
+    private static let crossMonitorReadmitSettleDelay: Duration = .milliseconds(120)
+    // <<< NEHIR-SHELL SEAM
     private static let createdWindowRetryLimit = 5
     private static let destroyLivenessSuppressedKeepRetryLimit = createdWindowRetryLimit
     private static let createPlacementContextTTL: TimeInterval = 15
@@ -1299,6 +1307,10 @@ final class AXEventHandler: CGSEventDelegate {
     private var pendingWindowRuleReevaluationTargets: Set<WindowRuleReevaluationTarget> = []
     private var pendingWindowStabilizationTasks: [WindowToken: Task<Void, Never>] = [:]
     private var pendingPostCreateLifecycleVerificationTasks: [WindowToken: Task<Void, Never>] = [:]
+    // >>> NEHIR-SHELL SEAM — multi-monitor edge-handoff (Case 3, drag re-admission).
+    // Per-token settle timers coalescing a cross-monitor drag into a single re-admission.
+    private var pendingCrossMonitorReadmitTasks: [WindowToken: Task<Void, Never>] = [:]
+    // <<< NEHIR-SHELL SEAM
     private var pendingDestroyLivenessVerificationTasks: [WindowToken: Task<Void, Never>] = [:]
     private var destroyLivenessSuppressedKeepCountByToken: [WindowToken: Int] = [:]
     private var pendingCreatedWindowRetryTasks: [UInt32: Task<Void, Never>] = [:]
@@ -2110,6 +2122,30 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
+        // >>> NEHIR-SHELL SEAM — multi-monitor edge-handoff (Case 3, drag re-admission).
+        // A manual drag can carry this tiled window onto another physical display. macOS
+        // moves the real window; nehir must then re-admit it into that display's workspace as
+        // a real tiled column. A bare workspace-id rebind does NOT insert the window into a
+        // populated strip's engine tree, so it falls to floating; the fix routes through the
+        // same `moveWindowFromBar` transfer the "Move to Workspace" command uses. Debounced to
+        // drag-settle (below) so it fires once instead of storming the hide/reveal + focus
+        // passes per drag frame. Suppress the per-frame source relayout meanwhile so we do not
+        // fight the pointer mid-drag.
+        if let observed = focusedObservedFrame ?? observedFrame(for: entry),
+           let physicalMonitor = observed.center.monitorContaining(in: controller.workspaceManager.monitors),
+           physicalMonitor.id != controller.workspaceManager.monitorId(for: entry.workspaceId),
+           controller.workspaceManager.activeWorkspace(on: physicalMonitor.id) != nil
+        {
+            controller.diagnostics.recordRuntimeViewportTrace(
+                workspaceId: entry.workspaceId,
+                reason: "seam_readmit_scheduled",
+                details: ["token=\(token)", "observedMonitor=\(physicalMonitor.id.displayId)"]
+            )
+            scheduleCrossMonitorReadmit(for: token)
+            return
+        }
+        // <<< NEHIR-SHELL SEAM
+
         debugCounters.geometryRelayoutRequests += 1
         debugCounters.scopedGeometryRelayoutRequests += 1
         controller.layoutRefreshController.requestRefresh(
@@ -2117,6 +2153,61 @@ final class AXEventHandler: CGSEventDelegate {
             affectedWorkspaceIds: [entry.workspaceId]
         )
     }
+
+    // >>> NEHIR-SHELL SEAM — multi-monitor edge-handoff (Case 3, drag re-admission).
+    /// Coalesces the frame-change stream of a cross-monitor drag into a single re-admission,
+    /// firing `crossMonitorReadmitSettleDelay` after the last frame change (drag released).
+    /// Re-resolves the target at fire time (the pointer may have crossed several displays or
+    /// come back), and routes through `moveWindowFromBar` so the window transfers into the
+    /// target display's engine tree as a real tiled column rather than a bare workspace
+    /// rebind (which would leave it floating in a populated strip). If the window has settled
+    /// back on its own monitor, it just relayouts in place instead.
+    private func scheduleCrossMonitorReadmit(for token: WindowToken) {
+        pendingCrossMonitorReadmitTasks[token]?.cancel()
+        let task = Task { @MainActor [weak self] in
+            defer { self?.pendingCrossMonitorReadmitTasks[token] = nil }
+            try? await Task.sleep(for: Self.crossMonitorReadmitSettleDelay)
+            guard !Task.isCancelled,
+                  let self,
+                  let controller = self.controller,
+                  !controller.isInteractiveGestureActive,
+                  let entry = controller.workspaceManager.entry(for: token),
+                  entry.mode == .tiling
+            else {
+                return
+            }
+            guard let observed = self.observedFrame(for: entry),
+                  let physicalMonitor = observed.center.monitorContaining(in: controller.workspaceManager.monitors),
+                  let targetWorkspace = controller.workspaceManager.activeWorkspace(on: physicalMonitor.id)
+            else {
+                return
+            }
+            // `needsMove=false` means the window is already on the target workspace — a native
+            // app-activation path re-admitted it first, but likely left it parked off-screen.
+            // Either way `readmitDraggedWindow` reveals + focuses it; when a move IS needed it
+            // also transfers it into the target engine tree as a real tiled column.
+            let needsMove = targetWorkspace.id != entry.workspaceId
+            controller.diagnostics.recordRuntimeViewportTrace(
+                workspaceId: targetWorkspace.id,
+                reason: "seam_readmit_fired",
+                details: [
+                    "token=\(token)",
+                    "observedMonitor=\(physicalMonitor.id.displayId)",
+                    "currentWorkspace=\(entry.workspaceId.uuidString)",
+                    "targetWorkspace=\(targetWorkspace.id.uuidString)",
+                    "needsMove=\(needsMove)"
+                ]
+            )
+            _ = controller.readmitDraggedWindow(token: token, toWorkspaceId: targetWorkspace.id)
+        }
+        pendingCrossMonitorReadmitTasks[token] = task
+    }
+
+    private func cancelCrossMonitorReadmit(for token: WindowToken) {
+        pendingCrossMonitorReadmitTasks[token]?.cancel()
+        pendingCrossMonitorReadmitTasks[token] = nil
+    }
+    // <<< NEHIR-SHELL SEAM
 
     private func shouldSuppressFrameChangedRelayout(
         for entry: WindowModel.Entry,
@@ -2801,6 +2892,7 @@ final class AXEventHandler: CGSEventDelegate {
 
         cancelPostCreateLifecycleVerification(for: token)
         cancelDestroyLivenessVerification(for: token)
+        cancelCrossMonitorReadmit(for: token) // NEHIR-SHELL SEAM — multi-monitor edge-handoff
         controller.axManager.removeWindowState(pid: token.pid, windowId: token.windowId)
         if handleNativeFullscreenDestroy(token) {
             return
