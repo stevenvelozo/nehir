@@ -56,6 +56,9 @@ private struct OffEdgeIndicatorView: View {
     let rightOverflow: Int
     var opacity: Double = 1.0
     var saturation: Double = 1.0
+    /// When true (Deck open), the badges are tap targets — for touching them via iPad remote.
+    var clickable = false
+    var onTap: (Int) -> Void = { _ in }
 
     var body: some View {
         HStack {
@@ -67,7 +70,9 @@ private struct OffEdgeIndicatorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .opacity(opacity)
         .saturation(saturation)
-        .allowsHitTesting(false)
+        // Only hit-test while clickable; the transparent areas never capture, so clicks pass
+        // through to windows/Deck below except directly on a badge.
+        .allowsHitTesting(clickable)
     }
 
     @ViewBuilder
@@ -83,9 +88,10 @@ private struct OffEdgeIndicatorView: View {
     }
 
     /// The number is pinned to the screen edge; the app icon sits on the inside (toward center)
-    /// so you can tell at a glance which app it is.
+    /// so you can tell at a glance which app it is. Tappable while the Deck is open.
+    @ViewBuilder
     private func edgeBadge(_ badge: WindowBadge, edge: HorizontalEdge) -> some View {
-        HStack(spacing: 5) {
+        let row = HStack(spacing: 5) {
             if edge == .leading {
                 ShapedNumber(number: badge.number, isFloating: badge.isFloating, size: 34)
                 icon(badge)
@@ -93,6 +99,12 @@ private struct OffEdgeIndicatorView: View {
                 icon(badge)
                 ShapedNumber(number: badge.number, isFloating: badge.isFloating, size: 34)
             }
+        }
+        if clickable, let columnIndex = badge.columnIndex {
+            Button { onTap(columnIndex) } label: { row }
+                .buttonStyle(.plain)
+        } else {
+            row
         }
     }
 
@@ -212,6 +224,9 @@ final class OffEdgeIndicatorController {
 
         let panel = panels[monitor.id] ?? NehirBadgePanel.make()
         panels[monitor.id] = panel
+        // Accept clicks only while the Deck is open (for iPad-remote taps); otherwise stay
+        // click-through so the persistent indicators never intercept normal interaction.
+        panel.ignoresMouseEvents = !deckOpen
         panel.setFrame(monitor.frame, display: true)
         panel.contentView = NSHostingView(rootView: OffEdgeIndicatorView(
             leftBadges: leftShown,
@@ -219,7 +234,11 @@ final class OffEdgeIndicatorController {
             rightBadges: rightShown,
             rightOverflow: rightOverflow,
             opacity: style.activeOpacity,
-            saturation: style.activeSaturation
+            saturation: style.activeSaturation,
+            clickable: deckOpen,
+            onTap: { [weak self] index in
+                self?.controller?.layoutCoordinator.focusColumn(index: index)
+            }
         ))
         panel.orderFrontRegardless()
     }
