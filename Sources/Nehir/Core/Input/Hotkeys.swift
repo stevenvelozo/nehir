@@ -81,10 +81,17 @@ final class HotkeyCenter {
                 nil,
                 &hotKeyID
             )
-            MainActor.assumeIsolated {
+            // >>> NEHIR-SHELL SEAM — only consume hotkeys we actually registered; pass the
+            // rest through (eventNotHandledErr) so a handler installed before us — e.g. the
+            // fork's Control Deck chord — still receives them regardless of install order.
+            // (Base's handler registers in startServices, gated on Accessibility; the Deck's
+            // registers in activate. A mid-launch AX grant flips the order and, without this,
+            // base would swallow the Deck's ⌘D.)
+            let handled = MainActor.assumeIsolated {
                 center.dispatch(id: hotKeyID.id)
             }
-            return noErr
+            return handled ? noErr : OSStatus(eventNotHandledErr)
+            // <<< NEHIR-SHELL SEAM
         }
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventSpec, selfPtr, &handler)
@@ -165,12 +172,14 @@ final class HotkeyCenter {
         }
     }
 
-    private func dispatch(id: UInt32) {
-        guard let action = idToAction[id] else { return }
+    @discardableResult
+    private func dispatch(id: UInt32) -> Bool {
+        guard let action = idToAction[id] else { return false }
         switch action {
         case let .command(command):
             onCommand?(command)
         }
+        return true
     }
 }
 

@@ -150,8 +150,15 @@ struct DeckView: View {
     // MARK: - Submodes (width presets keep their % label)
 
     private var submodeRow: some View {
-        HStack(spacing: 8) {
-            ForEach(model.mode.actions) { labelChip($0) }
+        // Wrap presets into rows of 4 so extra widths (e.g. 5/6) form a second row.
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(stride(from: 0, to: model.mode.actions.count, by: 4)), id: \.self) { start in
+                HStack(spacing: 8) {
+                    ForEach(Array(model.mode.actions[start ..< min(start + 4, model.mode.actions.count)])) {
+                        labelChip($0)
+                    }
+                }
+            }
         }
     }
 

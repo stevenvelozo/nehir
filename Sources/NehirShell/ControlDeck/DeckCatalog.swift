@@ -254,7 +254,8 @@ enum DeckCatalog {
     /// `NiriSizeChange.setProportion` takes a PERCENT (0–100) — the engine divides
     /// it by 100 — so pass 25/50/75/100, not 0.25/0.5/….
     private static func widthActions(_ command: @escaping (NiriSizeChange) -> HotkeyCommand) -> [DeckAction] {
-        let presets: [(String, CGFloat)] = [("1", 25), ("2", 50), ("3", 75), ("4", 100)]
+        // Row 1: quarters (1–4); row 2: thirds (5=33%, 6=66%). The view wraps every 4.
+        let presets: [(String, CGFloat)] = [("1", 25), ("2", 50), ("3", 75), ("4", 100), ("5", 33), ("6", 66)]
         return presets.map { label, percent in
             DeckAction(
                 key: .character(Character(label)),
