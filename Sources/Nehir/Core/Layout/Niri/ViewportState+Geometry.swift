@@ -82,6 +82,8 @@ struct ViewportSnapContext {
     // display abuts this strip's right (neighbor-facing) edge, so a column resting past
     // that edge would straddle onto it — which macOS cannot composite and Gate B culls.
     var rightEdgeHasNeighbor: Bool = false
+    // NEHIR-SHELL SEAM — mirror of the above for a display abutting the LEFT edge.
+    var leftEdgeHasNeighbor: Bool = false
 
     // >>> NEHIR-SHELL SEAM — multi-monitor inner-edge detent (Phase 2a).
     /// Semantic A: keep the rightmost column flush at the neighbor-facing bezel so it never
@@ -108,6 +110,66 @@ struct ViewportSnapContext {
             columnStart = columnEnd + gap
         }
         return adjusted
+    }
+
+    /// Reveal-path variant: flush a specific column (the one being revealed) to the
+    /// neighbor-facing bezel iff IT straddles it. Unlike `viewStartAvoidingRightStraddle`
+    /// this never flushes a *different* column, so it can only ever bring the revealed column
+    /// more fully into view — it cannot push the column being revealed off-screen.
+    func viewStartFlushingRightStraddle(ofColumn index: Int, from viewStart: CGFloat) -> CGFloat {
+        guard rightEdgeHasNeighbor, viewportWidth > 0, columns.indices.contains(index) else { return viewStart }
+        let tolerance: CGFloat = 0.5
+        let viewportRight = viewStart + viewportWidth
+        var columnStart: CGFloat = 0
+        for (columnIndex, column) in columns.enumerated() {
+            let width = max(0, column.effectiveViewportWidth)
+            let columnEnd = columnStart + width
+            if columnIndex == index {
+                if width > 0, columnStart < viewportRight - tolerance, columnEnd > viewportRight + tolerance {
+                    return columnEnd - viewportWidth
+                }
+                return viewStart
+            }
+            columnStart = columnEnd + gap
+        }
+        return viewStart
+    }
+
+    /// Left-neighbor mirror of `viewStartAvoidingRightStraddle`: flush a column crossing the
+    /// LEFT (neighbor-facing) viewport edge so its leading edge rests at that bezel.
+    func viewStartAvoidingLeftStraddle(_ viewStart: CGFloat) -> CGFloat {
+        guard leftEdgeHasNeighbor, viewportWidth > 0 else { return viewStart }
+        let tolerance: CGFloat = 0.5
+        var columnStart: CGFloat = 0
+        var adjusted = viewStart
+        for column in columns {
+            let width = max(0, column.effectiveViewportWidth)
+            let columnEnd = columnStart + width
+            if width > 0, columnStart < viewStart - tolerance, columnEnd > viewStart + tolerance {
+                adjusted = columnStart
+            }
+            columnStart = columnEnd + gap
+        }
+        return adjusted
+    }
+
+    /// Left-neighbor mirror of `viewStartFlushingRightStraddle`.
+    func viewStartFlushingLeftStraddle(ofColumn index: Int, from viewStart: CGFloat) -> CGFloat {
+        guard leftEdgeHasNeighbor, viewportWidth > 0, columns.indices.contains(index) else { return viewStart }
+        let tolerance: CGFloat = 0.5
+        var columnStart: CGFloat = 0
+        for (columnIndex, column) in columns.enumerated() {
+            let width = max(0, column.effectiveViewportWidth)
+            let columnEnd = columnStart + width
+            if columnIndex == index {
+                if width > 0, columnStart < viewStart - tolerance, columnEnd > viewStart + tolerance {
+                    return columnStart
+                }
+                return viewStart
+            }
+            columnStart = columnEnd + gap
+        }
+        return viewStart
     }
     // <<< NEHIR-SHELL SEAM
 
@@ -684,7 +746,8 @@ extension ViewportState {
         viewportWidth: CGFloat,
         pixelTolerance: CGFloat = 0.5,
         intentionallyDoesNotFillViewport: Bool = false,
-        rightEdgeHasNeighbor: Bool = false // NEHIR-SHELL SEAM — inner-edge detent (Phase 2a)
+        rightEdgeHasNeighbor: Bool = false, // NEHIR-SHELL SEAM — inner-edge detent (Phase 2a)
+        leftEdgeHasNeighbor: Bool = false // NEHIR-SHELL SEAM
     ) -> ViewportSnapContext {
         ViewportSnapContext(
             columns: columns,
@@ -697,7 +760,8 @@ extension ViewportState {
                 pixelTolerance: pixelTolerance
             ),
             intentionallyDoesNotFillViewport: intentionallyDoesNotFillViewport,
-            rightEdgeHasNeighbor: rightEdgeHasNeighbor // NEHIR-SHELL SEAM
+            rightEdgeHasNeighbor: rightEdgeHasNeighbor, // NEHIR-SHELL SEAM
+            leftEdgeHasNeighbor: leftEdgeHasNeighbor // NEHIR-SHELL SEAM
         )
     }
 

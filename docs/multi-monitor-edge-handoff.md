@@ -199,11 +199,29 @@ claim.
         + `viewStartAvoidingRightStraddle` (semantic A: rightmost flush at bezel,
         earlier columns clip the outer edge), computed in `makeViewportSnapContext`
         and applied in the resize reveal (`NiriLayoutEngine+Sizing.swift`).
-  - [ ] Navigation-path clamp (`scrollToReveal`) — deferred; needs an
-        active-column-preservation guard so flushing a right straddler cannot push
-        the column being revealed off-screen.
-  - [ ] Trackpad-scroll overscroll detent + pull-to-commit (tunable threshold).
-  - [ ] Chevron / count affordance at the inner edge (Phase 2b).
+  - [x] Navigation/scroll-path clamp (`scrollToReveal`) — flushes only the column
+        being revealed (`viewStartFlushingRightStraddle`/`…Left…`), so it can never
+        push that column off-screen. This is the discrete-scroll "snaps the right
+        edge". **Implemented; hardware confirmation pending.**
+  - [x] Left-edge neighbor symmetry — `leftEdgeHasNeighbor` + left flush variants,
+        so side-by-side works with a neighbor on either side. **Implemented;
+        hardware confirmation pending (repo owner's rig is right-side only).**
+  - Note: nehir viewport scroll is discrete column-focus (trackpad pan is
+    deliberately disabled, `MouseEventHandler.swift`), so there is no continuous
+    overscroll to rubber-band. "Detent" = each focused column resting flush. A true
+    continuous trackpad pull-to-commit would be a separate, larger change and is
+    deferred (candidate for the richer-interaction featureset, not this fix).
+- [x] Config "unsupported" messaging removed. `DisplayEnvironmentDiagnostics`
+      (fork-original, so sync-safe) no longer emits the horizontal-arrangement
+      warning; the diagnostics-tab all-clear reworded. The `.horizontalDisplayArrangement`
+      Issue kind is retained (unused) so existing tests still compile; those tests
+      assert the old contract and are deferred to the test phase per the repo gate.
+- [ ] Window-badge OSD system (design locked; supersedes the standalone chevron).
+      Managed = circle + column number (`cmd+D <n>` target); floating = square +
+      floating index (`cmd+D V <n>` target). Responsive tiers: number → app icon →
+      name → size → min-policy → workspace. F1 in the Deck toggles a persisted
+      "show full window list"; off-edge columns render as the same badge at
+      collapsed detail. Builds on `NehirShell/ControlDeck/ColumnBadgeOverlay.swift`.
 - [ ] Cross-display focus crossing.
 - [ ] Config `horizontalDisplayArrangement` messaging updated once side-by-side
       is supported.

@@ -104,17 +104,18 @@ struct DisplayEnvironmentDiagnostics: Equatable {
         evaluate(monitors: Monitor.current())
     }
 
-    /// Evaluates the currently supported display environment. As of now Nehir supports
-    /// fixed-Dock-free setups and display arrangements with no vertical overlap
-    /// (vertical/diagonal layouts). Separate Spaces detection is shown as state in the
-    /// UI, but it does not change or suppress the support recommendation.
+    /// Evaluates the currently supported display environment. Nehir now supports
+    /// side-by-side (horizontally adjacent) displays: columns at an edge shared with a
+    /// neighboring display rest flush against that bezel instead of straddling onto it (see
+    /// the inner-edge flush clamp in the Niri viewport layer), so the former
+    /// "unsupported vertical display overlap" warning is no longer emitted. Fixed side-Dock
+    /// setups remain flagged because they still reserve the parking edge.
     static func evaluate(
         monitors: [Monitor],
         spacesMode _: DisplaySpacesMode = .unavailable
     ) -> DisplayEnvironmentDiagnostics {
         var issues: [Issue] = []
         issues.append(contentsOf: fixedDockIssues(monitors: monitors))
-        issues.append(contentsOf: horizontalArrangementIssues(monitors: monitors))
         return DisplayEnvironmentDiagnostics(issues: issues)
     }
 
@@ -147,40 +148,9 @@ struct DisplayEnvironmentDiagnostics: Equatable {
         }
     }
 
-    private static func horizontalArrangementIssues(monitors: [Monitor]) -> [Issue] {
-        guard monitors.count > 1 else { return [] }
-
-        var issues: [Issue] = []
-        for firstIndex in monitors.indices {
-            for secondIndex in monitors.indices where secondIndex > firstIndex {
-                let first = monitors[firstIndex]
-                let second = monitors[secondIndex]
-                let verticalOverlap = overlap(
-                    first.frame.minY ... first.frame.maxY,
-                    second.frame.minY ... second.frame.maxY
-                )
-                guard verticalOverlap > 1 else { continue }
-                let horizontalOverlap = overlap(
-                    first.frame.minX ... first.frame.maxX,
-                    second.frame.minX ... second.frame.maxX
-                )
-                guard horizontalOverlap < 1 else { continue }
-                issues.append(
-                    Issue(
-                        kind: .horizontalDisplayArrangement(
-                            firstMonitorId: first.id,
-                            firstMonitorName: first.name,
-                            secondMonitorId: second.id,
-                            secondMonitorName: second.name
-                        )
-                    )
-                )
-            }
-        }
-        return issues
-    }
-
-    private static func overlap(_ lhs: ClosedRange<CGFloat>, _ rhs: ClosedRange<CGFloat>) -> CGFloat {
-        max(0, min(lhs.upperBound, rhs.upperBound) - max(lhs.lowerBound, rhs.lowerBound))
-    }
+    // NEHIR-SHELL SEAM — the former `horizontalArrangementIssues` check (and its `overlap`
+    // helper) is removed: side-by-side displays are now supported via the inner-edge flush
+    // clamp, so an adjacent display is no longer a warned-about configuration. The
+    // `.horizontalDisplayArrangement` Issue kind is retained for wire/UI compatibility but is
+    // no longer emitted.
 }

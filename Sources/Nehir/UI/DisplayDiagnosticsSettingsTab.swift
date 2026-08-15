@@ -207,7 +207,7 @@ struct DisplayDiagnosticsSettingsTab: View {
                 let visibleIssues = diagnostics.issues.filter { !dismissedIssueIds.contains($0.id) }
                 if visibleIssues.isEmpty {
                     Label(
-                        "No side fixed Dock or unsupported vertical display overlap detected.",
+                        "No display-configuration issues detected. Side-by-side displays are supported.",
                         systemImage: "checkmark.circle"
                     )
                     .foregroundStyle(.green)

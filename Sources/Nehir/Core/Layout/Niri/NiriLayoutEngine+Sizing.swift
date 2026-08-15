@@ -357,9 +357,11 @@ extension NiriLayoutEngine {
             }
 
             let scale = displayScale(in: workspaceId)
-            // NEHIR-SHELL SEAM — inner-edge detent (Phase 2a): keep the rightmost column
-            // flush at a neighbor-facing bezel instead of resting straddling (culled/black).
-            let clampedStart = context.viewStartAvoidingRightStraddle(newStart)
+            // NEHIR-SHELL SEAM — inner-edge detent (Phase 2a): keep the column flush at a
+            // neighbor-facing bezel (either side) instead of resting straddling (culled/black).
+            let clampedStart = context.viewStartAvoidingLeftStraddle(
+                context.viewStartAvoidingRightStraddle(newStart)
+            )
             let targetOffset = context.targetOffset(
                 forViewportStart: clampedStart,
                 activeColumnIndex: columnIndex,

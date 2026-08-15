@@ -188,11 +188,17 @@ extension NiriLayoutEngine {
         }
 
         guard let targetSnap else { return false }
-        // NEHIR-SHELL SEAM — inner-edge detent (Phase 2a): the resting-flush clamp lives in the
-        // resize path for now; applying it here (navigation reveal) needs an active-column
-        // preservation guard first, or flushing a right straddler can push the column being
-        // revealed back off-screen. Tracked as follow-up.
-        let targetOffset = context.targetOffset(for: targetSnap, in: state)
+        // NEHIR-SHELL SEAM — inner-edge detent (Phase 2a): when revealing a column on a strip
+        // with a neighbor-facing bezel, land it flush at the bezel instead of straddling
+        // (which macOS culls to black). Only the column being revealed is flushed, so it can
+        // never push that column off-screen. This is the discrete-scroll "snaps the right edge".
+        let rightFlushed = context.viewStartFlushingRightStraddle(ofColumn: columnIndex, from: targetSnap.offset)
+        let clampedStart = context.viewStartFlushingLeftStraddle(ofColumn: columnIndex, from: rightFlushed)
+        let targetOffset: CGFloat = if abs(clampedStart - targetSnap.offset) > pixel {
+            context.targetOffset(forViewportStart: clampedStart, activeColumnIndex: state.activeColumnIndex, in: state)
+        } else {
+            context.targetOffset(for: targetSnap, in: state)
+        }
         guard abs(targetOffset - state.viewOffsetPixels.target()) > pixel else { return false }
 
         state.animateToOffset(targetOffset, motion: motion, config: animationConfig, scale: scale)
@@ -329,12 +335,17 @@ extension NiriLayoutEngine {
             abs(monitor.frame.minX - workingFrame.maxX) < 2.0
                 && min(monitor.frame.maxY, workingFrame.maxY) - max(monitor.frame.minY, workingFrame.minY) > 0
         }
+        let leftEdgeHasNeighbor = monitors.values.contains { monitor in
+            abs(monitor.frame.maxX - workingFrame.minX) < 2.0
+                && min(monitor.frame.maxY, workingFrame.maxY) - max(monitor.frame.minY, workingFrame.minY) > 0
+        }
         return state.snapContext(
             columns: columns,
             gap: gaps,
             viewportWidth: viewportWidth ?? workingFrame.width,
             intentionallyDoesNotFillViewport: intentionallyDoesNotFillViewport,
-            rightEdgeHasNeighbor: rightEdgeHasNeighbor
+            rightEdgeHasNeighbor: rightEdgeHasNeighbor,
+            leftEdgeHasNeighbor: leftEdgeHasNeighbor
         )
     }
 
