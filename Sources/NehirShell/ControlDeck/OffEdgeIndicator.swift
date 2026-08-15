@@ -49,30 +49,36 @@ struct OffEdgeIndicatorStyle {
 /// Vertically-centered stacks of collapsed badges pinned to the left and right screen edges,
 /// one badge per off-screen column on that side (plus a "+N" when more are hidden than
 /// `maxBadges`). Purely visual.
-private struct OffEdgeIndicatorView: View {
-    let leftBadges: [WindowBadge]
-    let leftOverflow: Int
-    let rightBadges: [WindowBadge]
-    let rightOverflow: Int
-    var opacity: Double = 1.0
-    var saturation: Double = 1.0
-    /// When true (Deck open), the badges are tap targets — for touching them via iPad remote.
-    var clickable = false
+/// Observable render state for one display's off-edge overlay. Kept alive across updates so the
+/// opacity/saturation fade can animate on the same view instance rather than a fresh one.
+@MainActor
+final class OffEdgeModel: ObservableObject {
+    @Published var leftBadges: [WindowBadge] = []
+    @Published var leftOverflow = 0
+    @Published var rightBadges: [WindowBadge] = []
+    @Published var rightOverflow = 0
+    @Published var clickable = false
+    @Published var opacity: Double = 1
+    @Published var saturation: Double = 1
     var onTap: (Int) -> Void = { _ in }
+}
+
+private struct OffEdgeIndicatorView: View {
+    @ObservedObject var model: OffEdgeModel
 
     var body: some View {
         HStack {
-            edgeStack(leftBadges, overflow: leftOverflow, edge: .leading)
+            edgeStack(model.leftBadges, overflow: model.leftOverflow, edge: .leading)
             Spacer(minLength: 0)
-            edgeStack(rightBadges, overflow: rightOverflow, edge: .trailing)
+            edgeStack(model.rightBadges, overflow: model.rightOverflow, edge: .trailing)
         }
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .opacity(opacity)
-        .saturation(saturation)
+        .opacity(model.opacity)
+        .saturation(model.saturation)
         // Only hit-test while clickable; the transparent areas never capture, so clicks pass
         // through to windows/Deck below except directly on a badge.
-        .allowsHitTesting(clickable)
+        .allowsHitTesting(model.clickable)
     }
 
     @ViewBuilder
@@ -100,8 +106,8 @@ private struct OffEdgeIndicatorView: View {
                 ShapedNumber(number: badge.number, isFloating: badge.isFloating, size: 34)
             }
         }
-        if clickable, let columnIndex = badge.columnIndex {
-            Button { onTap(columnIndex) } label: { row }
+        if model.clickable, let columnIndex = badge.columnIndex {
+            Button { model.onTap(columnIndex) } label: { row }
                 .buttonStyle(.plain)
         } else {
             row
@@ -137,6 +143,8 @@ private struct OffEdgeIndicatorView: View {
 final class OffEdgeIndicatorController {
     weak var controller: WMController?
     private var panels: [Monitor.ID: NSPanel] = [:]
+    private var models: [Monitor.ID: OffEdgeModel] = [:]
+    private var fadeTasks: [Monitor.ID: Task<Void, Never>] = [:]
     private var deckOpen = false
 
     /// Width reserved at an edge for the badge stack. If the strip's visible content leaves at
@@ -222,25 +230,41 @@ final class OffEdgeIndicatorController {
         let (leftShown, leftOverflow) = showLeft ? cap(offLeft, to: style.maxBadges) : ([], 0)
         let (rightShown, rightOverflow) = showRight ? cap(offRight, to: style.maxBadges) : ([], 0)
 
+        let model = models[monitor.id] ?? OffEdgeModel()
+        models[monitor.id] = model
+        model.leftBadges = leftShown
+        model.leftOverflow = leftOverflow
+        model.rightBadges = rightShown
+        model.rightOverflow = rightOverflow
+        model.clickable = deckOpen
+        model.onTap = { [weak self] index in
+            self?.controller?.layoutCoordinator.focusColumn(index: index)
+        }
+        // Snap to full strength on any change (no animation); the task below fades it to rest.
+        model.opacity = style.activeOpacity
+        model.saturation = style.activeSaturation
+
         let panel = panels[monitor.id] ?? NehirBadgePanel.make()
         panels[monitor.id] = panel
         // Accept clicks only while the Deck is open (for iPad-remote taps); otherwise stay
         // click-through so the persistent indicators never intercept normal interaction.
         panel.ignoresMouseEvents = !deckOpen
         panel.setFrame(monitor.frame, display: true)
-        panel.contentView = NSHostingView(rootView: OffEdgeIndicatorView(
-            leftBadges: leftShown,
-            leftOverflow: leftOverflow,
-            rightBadges: rightShown,
-            rightOverflow: rightOverflow,
-            opacity: style.activeOpacity,
-            saturation: style.activeSaturation,
-            clickable: deckOpen,
-            onTap: { [weak self] index in
-                self?.controller?.layoutCoordinator.focusColumn(index: index)
-            }
-        ))
+        if panel.contentView == nil {
+            panel.contentView = NSHostingView(rootView: OffEdgeIndicatorView(model: model))
+        }
         panel.orderFrontRegardless()
+
+        // Hold at full strength for `fadeAfter`, then animate to the resting opacity/saturation.
+        fadeTasks[monitor.id]?.cancel()
+        fadeTasks[monitor.id] = Task { @MainActor [weak model] in
+            try? await Task.sleep(for: .seconds(style.fadeAfter))
+            guard !Task.isCancelled, let model else { return }
+            withAnimation(.easeInOut(duration: style.fadeDuration)) {
+                model.opacity = style.restingOpacity
+                model.saturation = style.restingSaturation
+            }
+        }
     }
 
     private func cap(_ badges: [WindowBadge], to maximum: Int) -> ([WindowBadge], Int) {
@@ -249,12 +273,14 @@ final class OffEdgeIndicatorController {
     }
 
     private func hide(monitor id: Monitor.ID) {
+        fadeTasks[id]?.cancel()
         panels[id]?.orderOut(nil)
         panels[id]?.contentView = nil
     }
 
     func hideAll() {
-        for panel in panels.values {
+        for (id, panel) in panels {
+            fadeTasks[id]?.cancel()
             panel.orderOut(nil)
             panel.contentView = nil
         }
