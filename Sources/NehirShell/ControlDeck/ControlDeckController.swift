@@ -35,6 +35,7 @@ final class ControlDeckController: NSObject {
     private let hostingView: DeckHostingView
     private let hotkey = DeckHotkey()
     private let columnBadges = ColumnBadgeOverlayController()
+    private let windowList = WindowListOverlayController()
     private weak var wmController: WMController?
     var statusItem: NSStatusItem?
     private var eventTap: CFMachPort?
@@ -300,6 +301,7 @@ final class ControlDeckController: NSObject {
         OwnedWindowRegistry.shared.register(panel)
         resizeAndCenter()
         presentColumnBadges()
+        NehirShell.offEdgeIndicators?.setDeckOpen(true)
         // Surface without activating the app, so the underlying window keeps focus.
         panel.orderFrontRegardless()
         installKeyTap()
@@ -308,6 +310,8 @@ final class ControlDeckController: NSObject {
     func hide() {
         removeKeyTap()
         columnBadges.hide()
+        windowList.hide()
+        NehirShell.offEdgeIndicators?.setDeckOpen(false)
         OwnedWindowRegistry.shared.unregister(panel)
         panel.orderOut(nil)
         model.reset()
@@ -321,9 +325,25 @@ final class ControlDeckController: NSObject {
     private func presentColumnBadges() {
         guard let wmController else {
             columnBadges.hide()
+            windowList.hide()
             return
         }
+        // Feature 1: on-window decorations always show with the Deck.
         columnBadges.present(using: wmController)
+        // Feature 2: the separate centered list only shows when the F1/`i` toggle is on.
+        if NehirShell.showFullWindowList {
+            windowList.present(using: wmController, belowDeckFrame: panel.frame)
+        } else {
+            windowList.hide()
+        }
+    }
+
+    /// F1/`i` toggles the persisted "show full window list" preference and re-evaluates the
+    /// overlays live, so the separate centered list panel appears/disappears. The on-window
+    /// decorations are unaffected.
+    private func toggleFullWindowList() {
+        NehirShell.showFullWindowList.toggle()
+        presentColumnBadges()
     }
 
     // MARK: - Layout
@@ -379,6 +399,17 @@ final class ControlDeckController: NSObject {
             {
                 let handled = MainActor.assumeIsolated { controller.model.handle(key: .commandDigit(digit)) }
                 return handled ? nil : Unmanaged.passUnretained(event)
+            }
+            // Toggle the full window list in the OSD. Bound to F1 (keyCode 0x7A) and to `i`
+            // (keyCode 0x22): F1 only reaches this tap as a keyDown when "standard function
+            // keys" is enabled — otherwise macOS routes it as a media/system event we never
+            // see — whereas `i` is always delivered as a keyDown. Handled before the
+            // command/control passthrough and the typographic/function fall-through below.
+            if flags.isDisjoint(with: [.command, .control, .option]),
+               nsEvent.keyCode == 0x7A || nsEvent.keyCode == 0x22
+            {
+                MainActor.assumeIsolated { controller.toggleFullWindowList() }
+                return nil
             }
             // Other command/control chords are never Deck keys — let them through so system
             // shortcuts (⌘Tab, ⌘Q, …) still work while the Deck is open.

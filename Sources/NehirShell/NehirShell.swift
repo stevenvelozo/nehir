@@ -46,11 +46,24 @@ public enum NehirShell {
     /// UserDefaults key the Display pane's cross-display-overflow toggle persists to.
     static let crossMonitorOverflowDefaultsKey = "NehirCrossMonitorOverflow"
 
+    /// UserDefaults key for the F1 "show full window list in the OSD" toggle. When on, opening
+    /// the Deck badges every window (managed columns + floating windows), not just the columns.
+    static let showFullWindowListDefaultsKey = "NehirShowFullWindowList"
+
+    /// The persisted F1 OSD full-window-list preference (defaults to off/false).
+    static var showFullWindowList: Bool {
+        get { UserDefaults.standard.bool(forKey: showFullWindowListDefaultsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: showFullWindowListDefaultsKey) }
+    }
+
     /// The Sparkle auto-updater, held for the app's lifetime so its scheduled checks run.
     @MainActor static var updater: NehirUpdaterController?
 
     /// The global layout-family controller (River / Blades / Free), held for the app's life.
     @MainActor static var layoutModes: LayoutModeController?
+
+    /// Persistent off-screen-column edge indicators, updated live from the layout hook.
+    @MainActor static var offEdgeIndicators: OffEdgeIndicatorController?
 
     /// Called once from the app entry point (`NehirApp.init`) to register the
     /// shell layer with the base window manager. Public and parameterless so the
@@ -161,6 +174,13 @@ public enum NehirShell {
 
         let layoutModes = LayoutModeController(controller: controller)
         self.layoutModes = layoutModes
+
+        let offEdge = OffEdgeIndicatorController()
+        offEdge.controller = controller
+        layoutModes.onDidApplyLayout = { [weak offEdge] workspaceId in
+            offEdge?.update(workspaceId: workspaceId)
+        }
+        self.offEdgeIndicators = offEdge
 
         guard config.deck.enabled else { return }
         let deck = ControlDeckController(

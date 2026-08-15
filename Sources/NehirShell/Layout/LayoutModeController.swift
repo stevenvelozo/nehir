@@ -18,12 +18,18 @@ final class LayoutModeController {
     private(set) var mode: NehirLayoutMode
     private static let defaultsKey = "NehirLayoutMode"
 
+    /// Additional per-workspace-layout-applied callback (beyond Blades z-order), chained off the
+    /// single `NehirShellHook.didApplyWorkspaceLayout` closure. Used to update the off-edge
+    /// indicators live as columns scroll on/off.
+    var onDidApplyLayout: (@MainActor (WorkspaceDescriptor.ID) -> Void)?
+
     init(controller: WMController) {
         self.controller = controller
         mode = NehirLayoutMode(rawValue: UserDefaults.standard.string(forKey: Self.defaultsKey) ?? "") ?? .river
         NehirShellHook.layoutMode = mode
         NehirShellHook.didApplyWorkspaceLayout = { [weak self] workspaceId in
             self?.applyBladesZOrder(workspaceId: workspaceId)
+            self?.onDidApplyLayout?(workspaceId)
         }
         // Launching straight into Free: float whatever is currently tiled.
         if mode == .free { enterFree() }
