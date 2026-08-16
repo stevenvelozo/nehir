@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Nehir</title>
+        <item>
+            <title>1.1.0</title>
+            <pubDate>Sun, 16 Aug 2026 08:25:20 -0700</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/stevenvelozo/nehir/releases/download/v1.1.0/Nehir-1.1.0.zip" length="19587782" type="application/octet-stream" sparkle:edSignature="gYJ3hogq/7DDSpU7SGtoIbUVSEasz0m2qOSQI6uS6BW4LqIQWGNaIoU7iwowSDGANZl2FMayuKq0TKvYxYydCg=="/>
+        </item>
+    </channel>
+</rss>
