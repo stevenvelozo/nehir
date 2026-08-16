@@ -35,7 +35,7 @@
 	<key>SUFeedURL</key>
 	<string>https://stevenvelozo.github.io/nehir/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>REPLACE_WITH_SPARKLE_ED_PUBLIC_KEY</string>
+	<string>PN8UeUHOOdKIHQHjNw3JivqczgkQ4gfcQKI7aXlAYJo=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>
