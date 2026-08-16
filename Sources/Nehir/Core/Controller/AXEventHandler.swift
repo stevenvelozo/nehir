@@ -2207,6 +2207,7 @@ final class AXEventHandler: CGSEventDelegate {
         pendingCrossMonitorReadmitTasks[token]?.cancel()
         pendingCrossMonitorReadmitTasks[token] = nil
     }
+
     // <<< NEHIR-SHELL SEAM
 
     private func shouldSuppressFrameChangedRelayout(

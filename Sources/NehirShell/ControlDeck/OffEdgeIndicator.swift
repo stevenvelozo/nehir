@@ -178,7 +178,11 @@ final class OffEdgeIndicatorController {
         // Off-screen columns are then assigned a side by their column INDEX relative to the
         // visible run — NOT by where they're physically parked (multi-monitor parks off-screen
         // columns on the safe left edge, so their frames are misleading).
-        struct Col { let index: Int; let badge: WindowBadge; let frame: CGRect; let onScreen: Bool }
+        struct Col { let index: Int
+            let badge: WindowBadge
+            let frame: CGRect
+            let onScreen: Bool
+        }
         let onScreenThreshold: CGFloat = 40
         var cols: [Col] = []
         for (index, column) in columns.enumerated() {

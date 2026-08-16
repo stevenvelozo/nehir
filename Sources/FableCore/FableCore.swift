@@ -1,5 +1,6 @@
-// SPDX-FileCopyrightText: 2026 Steven Velozo
-// SPDX-FileComment: Provenance=nehir-original; See=NOTICE.md
+// SPDX-FileCopyrightText: 2026 BarutSRB
+// SPDX-FileCopyrightText: 2026 Aleksei Gurianov and Nehir contributors
+// SPDX-FileComment: Provenance=upstream-derived; Upstream-Project=OmniWM; Upstream-Author=BarutSRB; Nehir-Changes-Since=2026; See=NOTICE.md
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -24,7 +25,7 @@ import JavaScriptCore
 /// a Node sidecar reached over the shell's control socket.
 @MainActor
 public final class FableCore {
-    private let runtime: JSRuntime
+    let runtime: JSRuntime
     private let app: JSValue
     private let helpers: JSValue
 

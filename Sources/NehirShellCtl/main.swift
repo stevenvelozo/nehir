@@ -1,5 +1,6 @@
-// SPDX-FileCopyrightText: 2026 Steven Velozo
-// SPDX-FileComment: Provenance=nehir-original; See=NOTICE.md
+// SPDX-FileCopyrightText: 2026 BarutSRB
+// SPDX-FileCopyrightText: 2026 Aleksei Gurianov and Nehir contributors
+// SPDX-FileComment: Provenance=upstream-derived; Upstream-Project=OmniWM; Upstream-Author=BarutSRB; Nehir-Changes-Since=2026; See=NOTICE.md
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -32,6 +33,9 @@ Usage:
   nehirshellctl config get <key>
   nehirshellctl config reload
   nehirshellctl config dump
+  nehirshellctl overlay list                # list registered overlay ids
+  nehirshellctl overlay show <id>           # summon an overlay (no hotkey needed)
+  nehirshellctl overlay hide
   nehirshellctl log <trace|debug|info|warn|error> <message ...>
 
 Examples:
@@ -86,6 +90,20 @@ case "config":
         request = ShellRequest(command: "config.dump")
     default:
         die("unknown config subcommand \"\(arguments[1])\" (get|reload|dump)")
+    }
+
+case "overlay":
+    guard arguments.count >= 2 else { die("usage: nehirshellctl overlay <show|hide|list> [id]") }
+    switch arguments[1] {
+    case "show":
+        guard arguments.count >= 3 else { die("usage: nehirshellctl overlay show <id>") }
+        request = ShellRequest(command: "overlay.show", key: arguments[2])
+    case "hide":
+        request = ShellRequest(command: "overlay.hide")
+    case "list":
+        request = ShellRequest(command: "overlay.list")
+    default:
+        die("unknown overlay subcommand \"\(arguments[1])\" (show|hide|list)")
     }
 
 case "log":

@@ -18,6 +18,7 @@ struct ShellConfig: Sendable, Equatable {
     var greeting: String
     var panel: PanelConfig
     var deck: DeckConfig
+    var overlays: [OverlayBinding]
     var custom: [String: String]
 
     static let fallback = ShellConfig(
@@ -25,6 +26,7 @@ struct ShellConfig: Sendable, Equatable {
         greeting: "Nehir shell online",
         panel: .fallback,
         deck: .fallback,
+        overlays: [],
         custom: [:]
     )
 }
@@ -86,10 +88,17 @@ private struct ShellConfigFile: Decodable {
         var grid: String?
     }
 
+    struct Overlay: Decodable {
+        var id: String?
+        var hotkey: String?
+        var enabled: Bool?
+    }
+
     var socket: Socket?
     var shell: Shell?
     var panel: Panel?
     var deck: Deck?
+    var overlay: [Overlay]?
     var custom: [String: String]?
 }
 
@@ -130,6 +139,7 @@ enum ShellConfigLoader {
             if let greeting = parsed.shell?.greeting { result.greeting = greeting }
             mergePanel(parsed.panel, into: &result.panel)
             mergeDeck(parsed.deck, into: &result.deck)
+            mergeOverlays(parsed.overlay, into: &result.overlays)
             if let custom = parsed.custom {
                 result.custom.merge(custom) { _, latest in latest }
             }
@@ -152,6 +162,22 @@ enum ShellConfigLoader {
         if let grid = deck.grid, let dimensions = parseGridDimensions(grid) {
             result.gridColumns = dimensions.columns
             result.gridRows = dimensions.rows
+        }
+    }
+
+    /// Accumulate `[[overlay]]` tables across files. A later file binding the same
+    /// id replaces the earlier one (so a fragment can override the hotkey or
+    /// disable a seeded overlay); a valid table needs both an id and a hotkey.
+    private static func mergeOverlays(_ overlays: [ShellConfigFile.Overlay]?, into result: inout [OverlayBinding]) {
+        guard let overlays else { return }
+        for overlay in overlays {
+            guard let id = overlay.id, !id.isEmpty, let hotkey = overlay.hotkey, !hotkey.isEmpty else { continue }
+            let binding = OverlayBinding(id: id, hotkey: hotkey, enabled: overlay.enabled ?? true)
+            if let index = result.firstIndex(where: { $0.id == id }) {
+                result[index] = binding
+            } else {
+                result.append(binding)
+            }
         }
     }
 
@@ -213,6 +239,17 @@ enum ShellConfigLoader {
         hotkey = "cmd+d"
         # Resize-grid dimensions (columns x rows) you drag on in the Resize submode.
         grid = "8x5"
+
+        # Overlays: pict-driven native popups summoned by a hotkey. The overlay's
+        # provider (WHAT to show) lives in a small script under
+        # ~/.config/nehir/overlays/*.js; this block binds it to a chord. Add one
+        # [[overlay]] block per overlay. The seeded "desktop-shots" overlay pops a
+        # draggable grid of recent ~/Desktop images. NOTE: avoid opt+cmd+d — macOS
+        # reserves it for the Dock auto-hide toggle, so it never reaches Nehir.
+        [[overlay]]
+        id = "desktop-shots"
+        hotkey = "ctrl+opt+cmd+d"
+        enabled = true
 
         # Arbitrary string values. Readable from fable templates as
         # {~Data:Record.<key>~} after a render `data` merge, and over the control

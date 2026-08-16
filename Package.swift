@@ -71,10 +71,21 @@ let package = Package(
                 .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight"])
             ]
         ),
+        // NEHIR-SHELL SEAM — C shim for the JavaScriptCore execution-time-limit SPI
+        // (used to bound user-authored overlay scripts). Contained here so the SPI
+        // lives in one auditable place.
+        .target(
+            name: "NehirJSCLimit",
+            path: "Sources/NehirJSCLimit",
+            linkerSettings: [
+                .linkedFramework("JavaScriptCore")
+            ]
+        ),
         // NEHIR-SHELL SEAM — reusable fable/pict-in-Swift bridge (JavaScriptCore host).
         // Standalone: depends on nothing in Nehir, so it can be lifted into any Swift app.
         .target(
             name: "FableCore",
+            dependencies: ["NehirJSCLimit"],
             path: "Sources/FableCore",
             resources: [
                 .process("Resources")

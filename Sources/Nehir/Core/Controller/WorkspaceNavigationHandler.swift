@@ -1028,6 +1028,7 @@ final class WorkspaceNavigationHandler {
         )
         return true
     }
+
     // <<< NEHIR-SHELL SEAM
 
     /// Post-layout handoff that focuses the moved window on its new workspace,

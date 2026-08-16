@@ -410,7 +410,8 @@ extension NiriLayoutEngine {
                orientation: orientation,
                hiddenPlacementMonitor: hiddenPlacementMonitor,
                hiddenPlacementMonitors: hiddenPlacementMonitors
-           ) {
+           )
+        {
             return .hidden(overflowEdge)
         }
         // <<< NEHIR-SHELL SEAM

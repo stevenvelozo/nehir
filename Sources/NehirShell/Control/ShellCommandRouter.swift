@@ -16,6 +16,9 @@ final class ShellCommandRouter {
     private let core: FableCore
     private let version: String
     private var config: ShellConfig
+    /// Set after construction (the overlay controller is built later in startup) so
+    /// `overlay.*` commands can drive it — used for iPad-remote / scripted summons.
+    weak var overlays: OverlayController?
 
     init(core: FableCore, config: ShellConfig, version: String) {
         self.core = core
@@ -50,9 +53,22 @@ final class ShellCommandRouter {
         case "solve": return solveExpression(request)
         case "render": return renderTemplate(request)
         case "log": return emitLog(request)
+        case "overlay.show": return overlayShow(request)
+        case "overlay.hide":
+            overlays?.hide()
+            return .success("hidden")
+        case "overlay.list":
+            return .success(overlays?.listRegistered().joined(separator: ", ") ?? "")
         case "quit": return quitApp()
         default: return .failure("unknown command \"\(request.command)\"")
         }
+    }
+
+    private func overlayShow(_ request: ShellRequest) -> ShellResponse {
+        guard let id = request.key else { return .failure("overlay.show requires 'key' (the overlay id)") }
+        guard let overlays else { return .failure("overlays are not available") }
+        overlays.show(id)
+        return .success("showing \(id)")
     }
 
     private func quitApp() -> ShellResponse {

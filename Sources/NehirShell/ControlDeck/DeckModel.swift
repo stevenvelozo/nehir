@@ -268,7 +268,8 @@ final class DeckModel {
             return handleDisplay(key: key)
         case .layout:
             return handleLayout(key: key)
-        case .columns, .floating:
+        case .columns,
+             .floating:
             return handleListPick(key: key)
         case .configurePick:
             return handleConfigurePick(key: key)

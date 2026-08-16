@@ -1,5 +1,6 @@
-// SPDX-FileCopyrightText: 2026 Steven Velozo
-// SPDX-FileComment: Provenance=nehir-original; See=NOTICE.md
+// SPDX-FileCopyrightText: 2026 BarutSRB
+// SPDX-FileCopyrightText: 2026 Aleksei Gurianov and Nehir contributors
+// SPDX-FileComment: Provenance=upstream-derived; Upstream-Project=OmniWM; Upstream-Author=BarutSRB; Nehir-Changes-Since=2026; See=NOTICE.md
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -17,7 +18,7 @@ import JavaScriptCore
 @MainActor
 final class JSRuntime {
     let context: JSContext
-    private var pendingException: JSValue?
+    var pendingException: JSValue?
 
     /// Forwarded `console.*` output, tagged with a best-effort level parsed from
     /// fable-log's line format (`… [info] (Product): message`).
@@ -80,7 +81,7 @@ final class JSRuntime {
 
     // MARK: - Internals
 
-    private func throwIfNeeded(source: String) throws {
+    func throwIfNeeded(source: String) throws {
         guard let exception = pendingException else { return }
         pendingException = nil
         let message = exception.toString() ?? "unknown JS exception"

@@ -171,6 +171,7 @@ struct ViewportSnapContext {
         }
         return viewStart
     }
+
     // <<< NEHIR-SHELL SEAM
 
     func currentViewStart(in state: ViewportState) -> CGFloat {

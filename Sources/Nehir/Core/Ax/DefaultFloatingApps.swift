@@ -13,7 +13,7 @@ enum DefaultFloatingApps {
         "com.apple.iphonesimulator",
         "com.apple.PhotoBooth",
         "com.apple.calculator",
-        "com.itoolab.unlockgo",
+        "com.itoolab.unlockgo"
         // NEHIR: com.apple.ScreenSharing and com.apple.remotedesktop were removed from this
         // list — VNC / remote-desktop windows are large, resizable, real app windows worth
         // tiling by default (unlike the small utility surfaces above). Add an app-rule with

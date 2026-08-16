@@ -898,6 +898,7 @@ final class WMController {
             toWorkspaceId: toWorkspaceId
         )
     }
+
     // <<< NEHIR-SHELL SEAM
 
     @discardableResult

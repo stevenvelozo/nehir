@@ -1,5 +1,6 @@
-// SPDX-FileCopyrightText: 2026 Steven Velozo
-// SPDX-FileComment: Provenance=nehir-original; See=NOTICE.md
+// SPDX-FileCopyrightText: 2026 BarutSRB
+// SPDX-FileCopyrightText: 2026 Aleksei Gurianov and Nehir contributors
+// SPDX-FileComment: Provenance=upstream-derived; Upstream-Project=OmniWM; Upstream-Author=BarutSRB; Nehir-Changes-Since=2026; See=NOTICE.md
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -65,6 +66,10 @@ public enum NehirShell {
     /// Persistent off-screen-column edge indicators, updated live from the layout hook.
     @MainActor static var offEdgeIndicators: OffEdgeIndicatorController?
 
+    /// The pict-driven overlay feature (hotkey-summoned native popups), held for the
+    /// app's lifetime so its hotkeys and JS registry stay live.
+    @MainActor static var overlays: OverlayController?
+
     /// Called once from the app entry point (`NehirApp.init`) to register the
     /// shell layer with the base window manager. Public and parameterless so the
     /// app target can call it with a plain `import NehirShell` — no base-manager
@@ -101,8 +106,16 @@ public enum NehirShell {
             NehirShellHook.allowCrossMonitorOverflow = initialCrossMonitorOverflow(config: config)
             core.log(.info, config.greeting)
 
+            // Overlays: pict decides what to show, Swift renders it. Built here (before
+            // the router) so `overlay.*` socket commands can drive it. Independent of the
+            // Deck, so it comes up even when the Deck is disabled.
+            let overlays = OverlayController(core: core, controller: controller)
+            overlays.start(bindings: config.overlays)
+            self.overlays = overlays
+
             // Stand up the control socket in front of config + the logic core.
             let router = ShellCommandRouter(core: core, config: config, version: appVersion())
+            router.overlays = overlays
             if config.socketEnabled {
                 let socketPath = ShellPaths.socketPath()
                 let socket = ShellControlSocket(socketPath: socketPath, router: router)
