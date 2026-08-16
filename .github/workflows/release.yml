@@ -34,6 +34,9 @@ jobs:
       TAP_REPOSITORY: Guria/homebrew-tap
       CASK_PATH: Casks/nehir.rb
       RC_CASK_PATH: Casks/nehir@rc.rb
+      # Homebrew-tap update is optional: it runs only when a tap app is configured
+      # (a fork without its own tap simply skips it and still ships the release).
+      HAS_TAP: ${{ secrets.TAP_APP_ID != '' }}
 
     steps:
       - name: Check out Nehir main
@@ -251,6 +254,7 @@ jobs:
           gh release create "${args[@]}"
 
       - name: Create Homebrew tap token
+        if: env.HAS_TAP == 'true'
         id: tap-token
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
@@ -260,6 +264,7 @@ jobs:
           repositories: homebrew-tap
 
       - name: Check out Homebrew tap
+        if: env.HAS_TAP == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ env.TAP_REPOSITORY }}
@@ -267,6 +272,7 @@ jobs:
           path: homebrew-tap
 
       - name: Update cask version and checksum
+        if: env.HAS_TAP == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SHA256: ${{ steps.checksum.outputs.sha256 }}
@@ -295,6 +301,7 @@ jobs:
           RUBY
 
       - name: Validate cask syntax and style
+        if: env.HAS_TAP == 'true'
         env:
           CASK_PATH_TO_VALIDATE: ${{ inputs.prerelease && env.RC_CASK_PATH || env.CASK_PATH }}
         working-directory: homebrew-tap
@@ -303,6 +310,7 @@ jobs:
           brew style "$CASK_PATH_TO_VALIDATE"
 
       - name: Commit and push tap update
+        if: env.HAS_TAP == 'true'
         working-directory: homebrew-tap
         shell: bash
         run: |
