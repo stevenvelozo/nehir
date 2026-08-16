@@ -52,7 +52,10 @@ struct OverlayKeyChord {
             "space": UInt16(kVK_Space), "return": UInt16(kVK_Return), "enter": UInt16(kVK_Return),
             "tab": UInt16(kVK_Tab), "esc": UInt16(kVK_Escape), "escape": UInt16(kVK_Escape),
             "delete": UInt16(kVK_Delete), "left": UInt16(kVK_LeftArrow), "right": UInt16(kVK_RightArrow),
-            "up": UInt16(kVK_UpArrow), "down": UInt16(kVK_DownArrow)
+            "up": UInt16(kVK_UpArrow), "down": UInt16(kVK_DownArrow),
+            "f1": UInt16(kVK_F1), "f2": UInt16(kVK_F2), "f3": UInt16(kVK_F3), "f4": UInt16(kVK_F4),
+            "f5": UInt16(kVK_F5), "f6": UInt16(kVK_F6), "f7": UInt16(kVK_F7), "f8": UInt16(kVK_F8),
+            "f9": UInt16(kVK_F9), "f10": UInt16(kVK_F10), "f11": UInt16(kVK_F11), "f12": UInt16(kVK_F12)
         ]
         let letters: [(String, Int)] = [
             ("a", kVK_ANSI_A), ("b", kVK_ANSI_B), ("c", kVK_ANSI_C), ("d", kVK_ANSI_D),

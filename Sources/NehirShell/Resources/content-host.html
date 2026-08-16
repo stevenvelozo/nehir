@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    color-scheme: light dark;
+    /* The theme variables pict-section-content's CSS reads (its own fallbacks are
+       light-mode browns, invisible on a dark card) — set them theme-aware here. */
+    --theme-color-text-primary: #1c1c1e;
+    --theme-color-text-secondary: #3a3a3c;
+    --theme-color-text-muted: #6b6b70;
+    --theme-color-brand-primary: #0a6cff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --theme-color-text-primary: #ededf0;
+      --theme-color-text-secondary: #c6c6cb;
+      --theme-color-text-muted: #9a9aa1;
+      --theme-color-brand-primary: #5aa9ff;
+    }
+  }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    padding: 14px 18px;
+    color: var(--theme-color-text-primary);
+    background: #f6f6f7;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #1f1f22; } }
+  /* Trim pict-content's page-scale padding/width for a compact help pane. */
+  body .pict-content { padding: 0; max-width: none; }
+  #content:empty::before { content: "…"; color: #999; }
+  #content { max-width: 100%; word-wrap: break-word; }
+  #content img { max-width: 100%; }
+  #content pre { overflow-x: auto; }
+</style>
+<!-- pict first, with no CommonJS shim, so it publishes window.Pict -->
+<script src="pict.min.js"></script>
+<!-- capture the content CSS module via a temporary CommonJS shim -->
+<script>window.module = { exports: {} }; window.exports = window.module.exports;</script>
+<script src="pict-content-css.js"></script>
+<script>
+  (function () {
+    var css = String(window.module.exports || "");
+    var style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+    // reset the shim for the next bundle
+    window.module = { exports: {} };
+    window.exports = window.module.exports;
+  })();
+</script>
+<!-- capture the content module (CommonJS branch avoids needing its global name) -->
+<script src="pict-section-content.min.js"></script>
+<script>
+  window.__ContentModule = window.module.exports;
+  try { delete window.module; delete window.exports; } catch (e) {}
+
+  window.__linksMode = "browser";
+  window.nehirSetLinks = function (mode) { window.__linksMode = mode; };
+
+  function ensureProvider() {
+    if (!window.__provider) {
+      var pict = new Pict();
+      var Content = window.__ContentModule;
+      window.__provider = pict.addProvider(
+        "Pict-Content",
+        Content.PictContentProvider.default_configuration,
+        Content.PictContentProvider
+      );
+    }
+    return window.__provider;
+  }
+
+  window.nehirRender = function (markdown) {
+    var el = document.getElementById("content");
+    try {
+      var html = ensureProvider().parseMarkdown(markdown);
+      el.className = "pict-content";
+      el.innerHTML = html;
+    } catch (e) {
+      el.innerHTML = '<pre style="color:#c66">' + String((e && e.stack) || e) + "</pre>";
+    }
+  };
+
+  window.nehirRenderHTML = function (html) {
+    var el = document.getElementById("content");
+    el.className = "pict-content";
+    el.innerHTML = html;
+  };
+
+  // Link handling: in "browser" mode, hand every link to Swift to open externally;
+  // in "in-pane" mode, let the web view navigate itself.
+  document.addEventListener("click", function (e) {
+    var anchor = e.target.closest ? e.target.closest("a") : null;
+    if (!anchor) { return; }
+    if (window.__linksMode === "browser") {
+      e.preventDefault();
+      var href = anchor.getAttribute("href") || "";
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehirLink) {
+        window.webkit.messageHandlers.nehirLink.postMessage(href);
+      }
+    }
+  });
+</script>
+</head>
+<body><div id="content"></div></body>
+</html>

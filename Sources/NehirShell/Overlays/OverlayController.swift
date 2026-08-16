@@ -53,7 +53,14 @@ final class OverlayController {
     private var visibleSpec: OverlaySpec?
     private var visibleItems: [OverlayItem] = []
     /// Developer-registered key handlers per overlay id (via `shell.overlay.onKey`).
-    private var keyActions: [String: [(chord: OverlayKeyChord, handler: FableFunction)]] = [:]
+    /// `key`/`label` feed the help quick-reference when it auto-appends.
+    private var keyActions: [String: [(chord: OverlayKeyChord, handler: FableFunction, key: String, label: String)]] =
+        [:]
+
+    /// Help panes (docked windows) currently on screen for the visible overlay.
+    private var helpShown = false
+    private var helpPanels: [NSPanel] = []
+    private var helpProse: [ProseHelpWebView] = []
     /// Whether the overlay currently on screen persists its frame; the size at the
     /// start of an in-progress resize gesture.
     private var visibleRemember = false
@@ -106,7 +113,12 @@ final class OverlayController {
                 guard let id = args.string(at: 0), let chordText = args.string(at: 1),
                       let handler = args.function(at: 2), let chord = OverlayKeyChord.parse(chordText)
                 else { return nil }
-                self?.keyActions[id, default: []].append((chord, handler))
+                let label = args.string(at: 3) ?? ""
+                self?.keyActions[id, default: []].append((chord, handler, chordText, label))
+                return nil
+            },
+            "refresh": { [weak self] _ in
+                self?.refresh()
                 return nil
             }
         ])
@@ -120,6 +132,8 @@ final class OverlayController {
                 return nil
             }
         ])
+        // Native shell.* actions (clipboard, file ops, run, notify, quickLook).
+        ShellCapabilities.install(on: core, quickLook: quickLook)
     }
 
     /// Cancel scheduled scripts and drop hotkeys. Unused while the controller
@@ -216,6 +230,7 @@ final class OverlayController {
     func hide() {
         autoDismissTask?.cancel()
         autoDismissTask = nil
+        hideHelp()
         removeDismissMonitors()
         // Persist the final frame (captures both move and resize) before teardown.
         if visibleRemember, let id = visibleOverlayId, let panel {
@@ -325,13 +340,43 @@ final class OverlayController {
         hosting.rootView = gridView(id: id, spec: spec, items: visibleItems)
     }
 
+    /// Re-pull the visible grid overlay and re-resolve its items (e.g. after a key
+    /// handler moved a file to the Trash). Keeps the selection on the same item if
+    /// it survives, otherwise on the item that took its slot. No-op for webview
+    /// overlays or when nothing is shown.
+    func refresh() {
+        guard let id = visibleOverlayId,
+              panel?.contentView is NSHostingView<OverlayPanelView>,
+              let spec = pullSpec(id), spec.source.isRenderable
+        else { return }
+        let items = OverlayResolver.resolve(spec.source)
+        let previousIndex = selectedItem.flatMap { selected in
+            visibleItems.firstIndex(where: { $0.id == selected.id })
+        } ?? 0
+        visibleSpec = spec
+        visibleItems = items
+        if let selectedId = selectedItem?.id, let kept = items.first(where: { $0.id == selectedId }) {
+            selectedItem = kept
+        } else if !items.isEmpty {
+            selectedItem = items[min(previousIndex, items.count - 1)]
+        } else {
+            selectedItem = nil
+        }
+        rerenderGrid()
+    }
+
     private func performAction(_ item: OverlayItem, _ action: OverlayItemBehavior.Action) {
         switch action {
         case .select: break
-        case .reveal: NSWorkspace.shared.activateFileViewerSelecting([item.url])
-        case .open: NSWorkspace.shared.open(item.url)
         case .quickLook: quickLook.preview(item.url)
         case .none: break
+        // Reveal/open switch to another app, so the overlay's job is done — dismiss it.
+        case .reveal:
+            NSWorkspace.shared.activateFileViewerSelecting([item.url])
+            hide()
+        case .open:
+            NSWorkspace.shared.open(item.url)
+            hide()
         }
     }
 
@@ -413,6 +458,144 @@ final class OverlayController {
         quickLook.preview(url)
     }
 
+    // MARK: - Help (F1)
+
+    func toggleHelp() {
+        if helpShown {
+            hideHelp()
+            return
+        }
+        guard let id = visibleOverlayId, let spec = visibleSpec, let help = spec.help,
+              let mainFrame = panel?.frame
+        else { return }
+        for pane in help.panes {
+            guard pane.kind != .unknown, let raw = helpFrame(pane: pane, main: mainFrame) else { continue }
+            let frame = clampOnScreen(raw)
+            let helpPanel = makeHelpPanel(frame: frame)
+            switch pane.kind {
+            case .quickref:
+                let keys = quickRefKeys(pane: pane, spec: spec, id: id)
+                helpPanel.contentView = NSHostingView(rootView: QuickRefView(title: pane.title, keys: keys))
+            case .prose:
+                let prose = ProseHelpWebView(pane: pane)
+                let container = NSView(frame: CGRect(origin: .zero, size: frame.size))
+                container.wantsLayer = true
+                container.layer?.cornerRadius = 14
+                container.layer?.masksToBounds = true
+                prose.webView.frame = container.bounds
+                prose.webView.autoresizingMask = [.width, .height]
+                container.addSubview(prose.webView)
+                helpPanel.contentView = container
+                helpProse.append(prose)
+            case .unknown:
+                continue
+            }
+            helpPanel.setFrame(frame, display: true)
+            helpPanel.orderFrontRegardless()
+            helpPanels.append(helpPanel)
+        }
+        helpShown = !helpPanels.isEmpty
+    }
+
+    private func hideHelp() {
+        for helpPanel in helpPanels {
+            helpPanel.orderOut(nil)
+            helpPanel.contentView = nil
+        }
+        helpPanels.removeAll()
+        helpProse.removeAll()
+        helpShown = false
+    }
+
+    /// Quick-reference rows: the explicit `keys`, then (when `auto`) the built-in
+    /// bindings implied by the item config plus any labeled `onKey` chords.
+    private func quickRefKeys(pane: OverlayHelpPane, spec: OverlaySpec, id: String) -> [OverlayHelpKey] {
+        var keys = pane.keys
+        guard pane.auto else { return keys }
+        if spec.item.quickLook { keys.append(OverlayHelpKey(key: "space", label: "Quick Look")) }
+        if spec.item.arrows { keys.append(OverlayHelpKey(key: "↑ ↓ ← →", label: "Navigate")) }
+        for binding in keyActions[id] ?? [] where !binding.label.isEmpty {
+            keys.append(OverlayHelpKey(key: binding.key, label: binding.label))
+        }
+        return keys
+    }
+
+    /// A docked frame adjacent to the overlay. Sizes are a percent of the matching
+    /// overlay dimension, or pixels; custom is positioned in the active monitor.
+    private func helpFrame(pane: OverlayHelpPane, main: CGRect) -> CGRect? {
+        let gap: CGFloat = 8
+        switch pane.position {
+        case .right:
+            let width = length(pane.size, of: main.width, fallback: 260)
+            return CGRect(x: main.maxX + gap, y: main.minY, width: width, height: main.height)
+        case .left:
+            let width = length(pane.size, of: main.width, fallback: 260)
+            return CGRect(x: main.minX - gap - width, y: main.minY, width: width, height: main.height)
+        case .above:
+            let height = length(pane.size, of: main.height, fallback: 170)
+            return CGRect(x: main.minX, y: main.maxY + gap, width: main.width, height: height)
+        case .below:
+            let height = length(pane.size, of: main.height, fallback: 170)
+            return CGRect(x: main.minX, y: main.minY - gap - height, width: main.width, height: height)
+        case .custom:
+            let area = activeMonitorVisibleFrame()
+            let width = length(pane.width, of: area.width, fallback: 320)
+            let height = length(pane.height, of: area.height, fallback: 220)
+            let originX = area.minX + length(pane.x, of: area.width, fallback: 0)
+            // y is measured from the top of the visible area (author-friendly).
+            let topOffset = length(pane.y, of: area.height, fallback: 0)
+            return CGRect(x: originX, y: area.maxY - topOffset - height, width: width, height: height)
+        }
+    }
+
+    /// Nudge a help-pane frame fully onto the screen it mostly overlaps, so a
+    /// docked pane never lands off-screen (e.g. a left pane when the overlay's
+    /// remembered position hugs the left edge).
+    private func clampOnScreen(_ frame: CGRect) -> CGRect {
+        let screen = NSScreen.screens.max(by: { first, second in
+            let a = first.visibleFrame.intersection(frame)
+            let b = second.visibleFrame.intersection(frame)
+            let areaA = a.isNull ? 0 : a.width * a.height
+            let areaB = b.isNull ? 0 : b.width * b.height
+            return areaA < areaB
+        })?.visibleFrame ?? (NSScreen.main?.visibleFrame ?? frame)
+        var result = frame
+        if result.maxX > screen.maxX { result.origin.x = screen.maxX - result.width }
+        if result.minX < screen.minX { result.origin.x = screen.minX }
+        if result.maxY > screen.maxY { result.origin.y = screen.maxY - result.height }
+        if result.minY < screen.minY { result.origin.y = screen.minY }
+        return result
+    }
+
+    /// Resolve a "NN%" (of `reference`) or pixel string to points.
+    private func length(_ text: String?, of reference: CGFloat, fallback: CGFloat) -> CGFloat {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return fallback }
+        if trimmed.hasSuffix("%") {
+            return (Double(trimmed.dropLast()).map { CGFloat($0) } ?? 0) / 100 * reference
+        }
+        return Double(trimmed).map { CGFloat($0) } ?? fallback
+    }
+
+    /// A non-activating panel for a help pane, so the main overlay keeps focus
+    /// (F1 keeps toggling; grid keys keep working) while help is interactive.
+    private func makeHelpPanel(frame: CGRect) -> NSPanel {
+        let helpPanel = NSPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        helpPanel.level = .floating
+        helpPanel.isFloatingPanel = true
+        helpPanel.hidesOnDeactivate = false
+        helpPanel.isOpaque = false
+        helpPanel.backgroundColor = .clear
+        helpPanel.hasShadow = true
+        helpPanel.ignoresMouseEvents = false
+        helpPanel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .stationary]
+        return helpPanel
+    }
+
     /// Run a developer-registered key handler (from `shell.overlay.onKey`) if one
     /// matches this event; returns whether it handled it. The handler is called
     /// with the selected item as `{ path, name }`, under the pull time budget.
@@ -429,6 +612,8 @@ final class OverlayController {
         } catch {
             core.log(.error, "overlay key handler aborted", ["id": id, "error": String(describing: error)])
         }
+        // A handler may have mutated the filesystem (trash/run); reflect it live.
+        refresh()
         return true
     }
 
@@ -568,6 +753,12 @@ final class OverlayController {
         // Priority: developer key handlers, then arrows, Quick Look, then Esc.
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            if let help = self.visibleSpec?.help,
+               let chord = OverlayKeyChord.parse(help.toggle), chord.matches(event)
+            {
+                self.toggleHelp()
+                return nil
+            }
             if let id = self.visibleOverlayId, self.runKeyHandler(id: id, event: event) {
                 return nil
             }
@@ -676,11 +867,25 @@ final class OverlayController {
               chrome: { titleBar: true, title: "Desktop", close: true }
             },
             // Defaults: single-click selects, double-click reveals in Finder,
-            // Space/Cmd-Y Quick Looks, arrow keys navigate. Register custom keys with
-            // shell.overlay.onKey("desktop-shots", "c", function (item) { ... }).
-            item: { drag: "fileURL" }
+            // Space/Cmd-Y Quick Looks, arrow keys navigate.
+            item: { drag: "fileURL" },
+            // F1 toggles help: a quick-reference (right) and pict-rendered prose (left).
+            help: {
+              toggle: "f1",
+              panes: [
+                { kind: "quickref", position: "right", size: 250, title: "Shortcuts", auto: true },
+                { kind: "prose", position: "left", size: "32%", links: "browser",
+                  markdown: "## Desktop\\n\\nRecent Desktop images. **Drag** one into any window; **Space** to Quick Look." }
+              ]
+            }
           };
         });
+
+        // Developer key actions. The 4th arg labels the key for the F1 quick-reference.
+        shell.overlay.onKey("desktop-shots", "c", function (item) { shell.clipboard(item.path); }, "Copy path");
+        shell.overlay.onKey("desktop-shots", "r", function (item) { shell.reveal(item.path); shell.overlay.hide(); }, "Reveal in Finder");
+        // Destructive actions are available too — bind them deliberately:
+        // shell.overlay.onKey("desktop-shots", "t", function (item) { shell.trash(item.path); }, "Move to Trash");
         """
         try? Data(sample.utf8).write(to: directory.appendingPathComponent("desktop-shots.js", isDirectory: false))
 

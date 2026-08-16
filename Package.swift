@@ -132,6 +132,10 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "Sources/NehirShell",
+            resources: [
+                // Vendored pict + pict-section-content bundles for the help prose pane.
+                .process("Resources")
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

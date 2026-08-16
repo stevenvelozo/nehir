@@ -18,9 +18,10 @@ struct OverlaySpec: Decodable {
     var present: OverlayPresentation
     var item: OverlayItemBehavior
     var dismiss: OverlayDismiss
+    var help: OverlayHelp?
 
     private enum CodingKeys: String, CodingKey {
-        case source, present, item, dismiss
+        case source, present, item, dismiss, help
     }
 
     init(from decoder: Decoder) throws {
@@ -29,6 +30,90 @@ struct OverlaySpec: Decodable {
         present = (try? container.decode(OverlayPresentation.self, forKey: .present)) ?? .init()
         item = (try? container.decode(OverlayItemBehavior.self, forKey: .item)) ?? .init()
         dismiss = (try? container.decode(OverlayDismiss.self, forKey: .dismiss)) ?? .init()
+        help = try? container.decode(OverlayHelp.self, forKey: .help)
+    }
+}
+
+/// Config-driven help for an overlay: a toggle key that shows/hides one or more
+/// docked panes (a hotkey quick-reference and/or prose rendered by
+/// pict-section-content).
+struct OverlayHelp: Decodable {
+    var toggle: String
+    var panes: [OverlayHelpPane]
+
+    private enum CodingKeys: String, CodingKey { case toggle, panes }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        toggle = (try? container.decode(String.self, forKey: .toggle)) ?? "f1"
+        panes = (try? container.decode([OverlayHelpPane].self, forKey: .panes)) ?? []
+    }
+}
+
+struct OverlayHelpKey: Decodable {
+    var key: String
+    var label: String
+
+    init(key: String, label: String) {
+        self.key = key
+        self.label = label
+    }
+
+    private enum CodingKeys: String, CodingKey { case key, label }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = (try? container.decode(String.self, forKey: .key)) ?? ""
+        label = (try? container.decode(String.self, forKey: .label)) ?? ""
+    }
+}
+
+struct OverlayHelpPane: Decodable {
+    enum Kind: String { case quickref, prose, unknown }
+    enum Position: String { case left, right, above, below, custom }
+    enum Links: String { case browser, inPane }
+
+    var kind: Kind
+    var position: Position
+    /// Thickness of the pane (width for left/right, height for above/below).
+    /// "%" of the overlay's matching dimension, or a pixel number.
+    var size: String?
+    var title: String?
+    // quickref
+    var keys: [OverlayHelpKey]
+    var auto: Bool
+    // prose
+    var markdown: String?
+    var html: String?
+    var url: String?
+    var links: Links
+    // custom position
+    var x: String?
+    var y: String?
+    var width: String?
+    var height: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, position, size, title, keys, auto, markdown, html, url, links, x, y, width, height
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = Kind(rawValue: (try? container.decode(String.self, forKey: .kind)) ?? "") ?? .unknown
+        position = Position(rawValue: (try? container.decode(String.self, forKey: .position)) ?? "") ?? .right
+        size = try? container.decode(String.self, forKey: .size)
+        title = try? container.decode(String.self, forKey: .title)
+        keys = (try? container.decode([OverlayHelpKey].self, forKey: .keys)) ?? []
+        auto = (try? container.decode(Bool.self, forKey: .auto)) ?? false
+        markdown = try? container.decode(String.self, forKey: .markdown)
+        html = try? container.decode(String.self, forKey: .html)
+        url = try? container.decode(String.self, forKey: .url)
+        let linksText = ((try? container.decode(String.self, forKey: .links)) ?? "").lowercased()
+        links = (linksText == "in-pane" || linksText == "inpane") ? .inPane : .browser
+        x = try? container.decode(String.self, forKey: .x)
+        y = try? container.decode(String.self, forKey: .y)
+        width = try? container.decode(String.self, forKey: .width)
+        height = try? container.decode(String.self, forKey: .height)
     }
 }
 
