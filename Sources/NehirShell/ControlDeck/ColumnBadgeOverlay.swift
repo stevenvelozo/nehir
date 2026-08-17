@@ -79,7 +79,13 @@ struct WindowBadgeChip: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            ShapedNumber(number: badge.number, isFloating: badge.isFloating)
+            if badge.number.isEmpty {
+                // A window stacked below its column's ordinal window: no number, indented so it
+                // reads as nested under the numbered entry above it.
+                Color.clear.frame(width: 14, height: 1)
+            } else {
+                ShapedNumber(number: badge.number, isFloating: badge.isFloating)
+            }
             if detail >= .compact {
                 if let icon = badge.appIcon {
                     // Floats between the shape and the text block, a touch smaller than the shape.
@@ -310,17 +316,21 @@ final class WindowListOverlayController {
 
         var managed: [WindowBadge] = []
         for (index, column) in engine.columns(in: workspaceId).prefix(10).enumerated() {
-            guard let token = column.windowNodes.first?.token,
-                  let entry = controller.workspaceManager.entry(for: token)
-            else { continue }
-            let number = index + 1
-            managed.append(WindowBadgeBuilder.make(
-                number: number == 10 ? "0" : String(number),
-                isFloating: false,
-                token: token,
-                entry: entry,
-                frame: try? AXWindowService.frame(entry.axRef)
-            ))
+            let columnNumber = index + 1
+            // Every window in the column is listed. The first carries the column ordinal
+            // (the ⌘D → n target); windows stacked below it show icon + size but no number.
+            for (windowIndex, node) in column.windowNodes.enumerated() {
+                guard let entry = controller.workspaceManager.entry(for: node.token) else { continue }
+                let number = windowIndex == 0 ? (columnNumber == 10 ? "0" : String(columnNumber)) : ""
+                managed.append(WindowBadgeBuilder.make(
+                    number: number,
+                    isFloating: false,
+                    token: node.token,
+                    entry: entry,
+                    frame: try? AXWindowService.frame(entry.axRef),
+                    columnIndex: index
+                ))
+            }
         }
 
         var floating: [WindowBadge] = []
