@@ -14,3 +14,7 @@ ROOT_DIR="$(git rev-parse --show-toplevel)"
 cd "$ROOT_DIR"
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $BASE_VERSION" Info.plist
+# Sparkle compares CFBundleVersion (the build number) to decide "is there an update".
+# Keep it in step with the release version so each release is seen as newer; leaving it
+# pinned means Sparkle treats every build as identical and never offers an update.
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BASE_VERSION" Info.plist
