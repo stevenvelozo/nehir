@@ -205,6 +205,7 @@ public enum NehirShell {
             deck.onCheckForUpdates = { [weak updater] in updater?.checkForUpdates() }
         }
         deck.layoutModeController = layoutModes
+        deck.overlays = overlays
         deck.install(chord: DeckHotkeyChord.parse(config.deck.hotkey))
         self.deck = deck
         log.info("control deck armed (hotkey=\(config.deck.hotkey, privacy: .public))")

@@ -18,6 +18,34 @@ struct OverlayBinding: Equatable, Sendable {
     let enabled: Bool
 }
 
+/// A pict extension's Deck/OSD registration (from `shell.overlay.osd`).
+private struct OSDRegistration {
+    let id: String
+    let group: String
+    let key: Character
+    let label: String
+    let tile: Bool
+    let status: FableFunction?
+}
+
+/// The decodable options object passed to `shell.overlay.osd(id, options, statusFn?)`.
+private struct OSDOptions: Decodable {
+    var group: String?
+    var key: String?
+    var label: String?
+    var tile: Bool?
+}
+
+/// A resolved OSD entry (live status pulled) handed to the Deck controller.
+struct OSDEntry {
+    let id: String
+    let group: String
+    let key: Character
+    let label: String
+    let tile: Bool
+    let status: String?
+}
+
 /// Owns the overlay feature: a JavaScript-side registry (populated by user
 /// scripts calling `shell.overlay.register`), the global hotkeys that summon
 /// overlays, and the single native panel that renders one at a time.
@@ -56,6 +84,9 @@ final class OverlayController {
     /// `key`/`label` feed the help quick-reference when it auto-appends.
     private var keyActions: [String: [(chord: OverlayKeyChord, handler: FableFunction, key: String, label: String)]] =
         [:]
+
+    /// OSD (Deck) registrations per overlay id, from `shell.overlay.osd`.
+    private var osdRegistrations: [String: OSDRegistration] = [:]
 
     /// Help panes (docked windows) currently on screen for the visible overlay.
     private var helpShown = false
@@ -119,6 +150,11 @@ final class OverlayController {
             },
             "refresh": { [weak self] _ in
                 self?.refresh()
+                return nil
+            },
+            "osd": { [weak self] args in
+                guard let id = args.string(at: 0) else { return nil }
+                self?.registerOSD(id: id, options: args.value(at: 1), status: args.function(at: 2))
                 return nil
             }
         ])
@@ -456,6 +492,39 @@ final class OverlayController {
     private func quickLookSelected() {
         guard let url = selectedItem?.url else { return }
         quickLook.preview(url)
+    }
+
+    // MARK: - OSD (Deck) registration
+
+    private func registerOSD(id: String, options: FableValue, status: FableFunction?) {
+        let opts = (try? options.decode(OSDOptions.self)) ?? OSDOptions()
+        osdRegistrations[id] = OSDRegistration(
+            id: id,
+            group: opts.group ?? "Extensions",
+            key: opts.key?.lowercased().first ?? "?",
+            label: opts.label ?? id,
+            tile: opts.tile ?? true,
+            status: status
+        )
+    }
+
+    /// Snapshot of the registered OSD entries for the Deck, pulling each live status
+    /// callback (under the same budget as a spec pull). Called when the Deck opens.
+    func osdEntries() -> [OSDEntry] {
+        osdRegistrations.values.map { registration in
+            let status = registration.status.flatMap { function in
+                try? core.call(function, timeLimitSeconds: pullTimeLimitSeconds).string
+            }
+            return OSDEntry(
+                id: registration.id,
+                group: registration.group,
+                key: registration.key,
+                label: registration.label,
+                tile: registration.tile,
+                status: status
+            )
+        }
+        .sorted { $0.label < $1.label }
     }
 
     // MARK: - Help (F1)
@@ -886,6 +955,11 @@ final class OverlayController {
         shell.overlay.onKey("desktop-shots", "r", function (item) { shell.reveal(item.path); shell.overlay.hide(); }, "Reveal in Finder");
         // Destructive actions are available too — bind them deliberately:
         // shell.overlay.onKey("desktop-shots", "t", function (item) { shell.trash(item.path); }, "Move to Trash");
+
+        // Register in the Deck/OSD (Cmd-D): group, key, label + optional status callback.
+        shell.overlay.osd("desktop-shots", { group: "Extensions", key: "o", label: "Desktop" }, function () {
+          return "Recent Desktop images";
+        });
         """
         try? Data(sample.utf8).write(to: directory.appendingPathComponent("desktop-shots.js", isDirectory: false))
 

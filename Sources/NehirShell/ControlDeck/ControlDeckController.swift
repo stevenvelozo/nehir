@@ -44,6 +44,8 @@ final class ControlDeckController: NSObject {
     var onCheckForUpdates: (() -> Void)?
     /// Injected by the shell layer: the global layout-family controller.
     weak var layoutModeController: LayoutModeController?
+    /// The overlay feature, so registered pict extensions appear as Deck entries.
+    weak var overlays: OverlayController?
 
     init(wmController: WMController, gridColumns: Int, gridRows: Int) {
         self.wmController = wmController
@@ -91,6 +93,7 @@ final class ControlDeckController: NSObject {
         model.toggleFloat = { [weak self] in self?.toggleFloatWithFit() }
         model.retileAll = { [weak self] in self?.retileAllFloating() }
         model.onClose = { [weak self] in self?.hide() }
+        model.onShowOverlay = { [weak self] id in self?.overlays?.show(id) }
         model.onModeChanged = { [weak self] in self?.resizeAndCenter() }
         model.requestPickItems = { [weak self] mode in
             guard let controller = self?.wmController else { return [] }
@@ -296,7 +299,26 @@ final class ControlDeckController: NSObject {
         }
     }
 
+    /// Pull the current pict-extension OSD registrations into Deck root entries (with
+    /// live status), so the Deck reflects them each time it opens.
+    private func refreshExtensionEntries() {
+        let entries = overlays?.osdEntries() ?? []
+        model.extensionActions = entries.map { entry in
+            DeckAction(
+                key: .character(entry.key),
+                keyLabel: String(entry.key).uppercased(),
+                title: entry.label,
+                symbol: "square.on.square",
+                kind: .showOverlay(entry.id),
+                subtitle: entry.status,
+                group: entry.group,
+                isHeadless: !entry.tile
+            )
+        }
+    }
+
     func show() {
+        refreshExtensionEntries()
         model.reset()
         OwnedWindowRegistry.shared.register(panel)
         resizeAndCenter()

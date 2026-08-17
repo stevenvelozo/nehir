@@ -40,6 +40,7 @@ struct OverlayTitleBar: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .focusable(false) // no keyboard focus ring behind the ✕
                     .help("Close")
                 }
                 Text(chrome.title ?? "")

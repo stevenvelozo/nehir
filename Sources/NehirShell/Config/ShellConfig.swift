@@ -248,7 +248,7 @@ enum ShellConfigLoader {
         # reserves it for the Dock auto-hide toggle, so it never reaches Nehir.
         [[overlay]]
         id = "desktop-shots"
-        hotkey = "ctrl+opt+cmd+d"
+        hotkey = "ctrl+opt+cmd+o"
         enabled = true
 
         # Arbitrary string values. Readable from fable templates as

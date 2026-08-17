@@ -51,6 +51,8 @@ enum DeckActionKind {
     case enterMode(DeckModeID)
     /// Back to root, or close the Deck if already at root.
     case back
+    /// Summon a registered overlay (a pict extension) by id, then close.
+    case showOverlay(String)
 }
 
 /// One selectable entry, addressable by key or tap.
@@ -61,6 +63,12 @@ struct DeckAction: Identifiable {
     let title: String
     let symbol: String
     let kind: DeckActionKind
+    /// Optional live status line (extensions), shown under the title.
+    var subtitle: String? = nil
+    /// Group label for dynamically-registered extension entries (nil = built-in).
+    var group: String? = nil
+    /// A headless extension entry: dispatched by key but drawn no tile.
+    var isHeadless: Bool = false
 }
 
 enum DeckModeID: Equatable {

@@ -61,8 +61,68 @@ struct DeckView: View {
             if !moveActions.isEmpty { labeledRow("Move", moveActions) }
             if !layoutActions.isEmpty { labeledRow("Layout", layoutActions) }
             if !windowActions.isEmpty { labeledRow("Window", windowActions) }
+            ForEach(extensionGroups, id: \.name) { group in
+                extensionRow(group.name, group.actions)
+            }
         }
         .frame(width: 320, alignment: .leading)
+    }
+
+    /// Registered pict-extension entries, grouped by their `group` label. Headless
+    /// entries dispatch by key but draw no tile, so they're excluded here.
+    private var extensionGroups: [(name: String, actions: [DeckAction])] {
+        let entries = model.mode.actions.filter { action in
+            if case .showOverlay = action.kind { return !action.isHeadless }
+            return false
+        }
+        return Dictionary(grouping: entries, by: { $0.group ?? "Extensions" })
+            .sorted { $0.key < $1.key }
+            .map { (name: $0.key, actions: $0.value) }
+    }
+
+    private func extensionRow(_ label: String, _ actions: [DeckAction]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
+            HStack(spacing: 8) {
+                ForEach(actions) { extensionChip($0) }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    /// A wide chip for an extension: key on the left, name + optional live status.
+    private func extensionChip(_ action: DeckAction) -> some View {
+        Button {
+            model.activate(action)
+        } label: {
+            HStack(spacing: 8) {
+                Text(action.keyLabel)
+                    .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(action.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    if let subtitle = action.subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 38)
+            .frame(maxWidth: 150)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.quaternary))
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func labeledRow(_ label: String, _ actions: [DeckAction]) -> some View {

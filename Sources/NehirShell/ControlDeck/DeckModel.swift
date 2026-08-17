@@ -26,6 +26,11 @@ final class DeckModel {
     var onClose: () -> Void = {}
     /// Fired after the mode changes, so the controller can resize/recenter the panel.
     var onModeChanged: () -> Void = {}
+    /// Summons a registered overlay by id (injected by the controller).
+    var onShowOverlay: (String) -> Void = { _ in }
+    /// Dynamically-registered extension entries, appended to the root mode when it's
+    /// shown (refreshed by the controller each time the Deck opens).
+    var extensionActions: [DeckAction] = []
     /// Supplies the live drill-in rows for a list mode (injected by the controller,
     /// which reads the workspace's columns / floating windows and their titles).
     var requestPickItems: (DeckModeID) -> [DeckPickItem] = { _ in [] }
@@ -157,6 +162,9 @@ final class DeckModel {
             setMode(DeckCatalog.mode(id))
         case .back:
             goBack()
+        case let .showOverlay(id):
+            onShowOverlay(id)
+            onClose()
         }
     }
 
@@ -385,7 +393,12 @@ final class DeckModel {
         default:
             break
         }
-        mode = newMode
+        // Append dynamically-registered extension entries to the root mode.
+        if newMode.id == .root, !extensionActions.isEmpty {
+            mode = DeckMode(id: .root, title: newMode.title, actions: newMode.actions + extensionActions)
+        } else {
+            mode = newMode
+        }
         onModeChanged()
     }
 
