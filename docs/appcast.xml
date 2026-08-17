@@ -6,9 +6,9 @@
             <title>1.1.0</title>
             <pubDate>Sun, 16 Aug 2026 08:25:20 -0700</pubDate>
             <sparkle:version>1</sparkle:version>
-            <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/stevenvelozo/nehir/releases/download/v1.1.0/Nehir-1.1.0.zip" length="19587782" type="application/octet-stream" sparkle:edSignature="gYJ3hogq/7DDSpU7SGtoIbUVSEasz0m2qOSQI6uS6BW4LqIQWGNaIoU7iwowSDGANZl2FMayuKq0TKvYxYydCg=="/>
+            <enclosure url="https://github.com/stevenvelozo/nehir/releases/download/v1.2.0/Nehir-1.2.0.zip" length="19649194" type="application/octet-stream" sparkle:edSignature="JffGatpdctC6vMwsfPZbtHsks9fF4zLyEJyQtbj6XkCwgxjK1q/vfjj8T/vfUvmINPyv/pE6UvVxne9h7WTIAg=="/>
         </item>
     </channel>
 </rss>
