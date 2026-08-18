@@ -326,27 +326,32 @@ jobs:
           git commit -m "Update Nehir${{ inputs.prerelease && ' RC' || '' }} to ${{ steps.version.outputs.version }}"
           git push
 
-      - name: Clear released changesets
+      - name: Commit release version and clear changesets
         if: ${{ !inputs.prerelease }}
         shell: bash
         run: |
           set -euo pipefail
-          # release:apply stamps Info.plist in the working tree for this run only.
-          # Reset it so the generated stamp is never committed.
+          # Discard the build's working-tree stamp, then re-apply the version on a
+          # clean main and commit it — the standard Changesets "commit the bump".
+          # This keeps the repo's Info.plist at the released version instead of the
+          # 1.0.0 baseline, so dev builds report the real version and the appcast
+          # tag defaults correctly.
           git reset --hard HEAD
 
           git checkout main
           git pull --ff-only origin main
 
+          mise run release:apply -- "${{ steps.version.outputs.version }}"
           find .changeset -maxdepth 1 -type f -name '*.md' ! -iname 'README.md' -delete
 
-          if git diff --quiet -- .changeset; then
-            echo "No released changesets to clear."
+          if git diff --quiet -- Info.plist .changeset; then
+            echo "Nothing to commit (version unchanged, no changesets)."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Info.plist
           git add -u .changeset
-          git commit -m "Clear changesets after ${{ steps.version.outputs.tag }}"
+          git commit -m "Release ${{ steps.version.outputs.tag }} — set version and clear changesets"
           git push origin main
