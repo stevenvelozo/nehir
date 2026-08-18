@@ -102,8 +102,14 @@ enum MacDisplaySettings {
     }
 
     static func setDockAutoHide(_ on: Bool) {
-        set("autohide", NSNumber(value: on), app: dockDomain)
-        restartDock()
+        // Drive it through System Events — the same path System Settings uses — so the Dock
+        // enters auto-hide LIVE and still reveals on hover. A raw `autohide` CFPreferences
+        // write + `killall Dock` restarts the Dock already hidden, but in that state it does
+        // not reveal on mouse-to-edge; it reads as "hidden permanently". System Events sets
+        // the same persistent `autohide` pref (so `current()` and DockReservation still read
+        // it) *and* engages the live auto-hide. (Needs the Automation permission Nehir
+        // requests, same as the menu-bar toggle.)
+        runSystemEvents("set autohide of dock preferences to \(on)")
     }
 
     static func setDockMagnification(_ on: Bool) {
