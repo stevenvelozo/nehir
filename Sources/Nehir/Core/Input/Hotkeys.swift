@@ -47,6 +47,13 @@ struct HotkeyRuntimeConfiguration: Equatable {
 
 @MainActor
 final class HotkeyCenter {
+    // >>> NEHIR-SHELL SEAM — Carbon signature for every hotkey this center registers
+    // ('OMNI'). The event callback matches on signature *and* id so it never claims
+    // another subsystem's hotkey (the Control Deck's 'NSHK', the overlays' 'NOVL') that
+    // happens to share an id number — both sides number their ids from 1.
+    private static let signature = OSType(0x4F4D_4E49) // 'OMNI'
+    // <<< NEHIR-SHELL SEAM
+
     var onCommand: ((HotkeyCommand) -> Void)?
 
     private var refs: [EventHotKeyRef?] = []
@@ -81,12 +88,17 @@ final class HotkeyCenter {
                 nil,
                 &hotKeyID
             )
-            // >>> NEHIR-SHELL SEAM — only consume hotkeys we actually registered; pass the
-            // rest through (eventNotHandledErr) so a handler installed before us — e.g. the
-            // fork's Control Deck chord — still receives them regardless of install order.
-            // (Base's handler registers in startServices, gated on Accessibility; the Deck's
-            // registers in activate. A mid-launch AX grant flips the order and, without this,
-            // base would swallow the Deck's ⌘D.)
+            // >>> NEHIR-SHELL SEAM — consume only hotkeys we registered, matched by BOTH our
+            // signature and id, and pass everything else through (eventNotHandledErr) so a
+            // handler installed before us — the Control Deck ('NSHK'), the overlay hotkeys
+            // ('NOVL') — still receives them regardless of install order. The base handler
+            // registers in startServices (gated on Accessibility); the Deck's registers in
+            // activate. A mid-launch Accessibility grant installs the base handler last, so it
+            // runs first: without the signature guard it matched the Deck's ⌘D by id alone (both
+            // sides number from 1), swallowed it, and left ⌘D dead until the next launch.
+            guard hotKeyID.signature == HotkeyCenter.signature else {
+                return OSStatus(eventNotHandledErr)
+            }
             let handled = MainActor.assumeIsolated {
                 center.dispatch(id: hotKeyID.id)
             }
@@ -137,7 +149,7 @@ final class HotkeyCenter {
                 continue
             }
             var ref: EventHotKeyRef?
-            let hotKeyID = EventHotKeyID(signature: OSType(0x4F4D_4E49), id: nextId)
+            let hotKeyID = EventHotKeyID(signature: Self.signature, id: nextId)
             let status = RegisterEventHotKey(
                 registration.binding.keyCode,
                 registration.binding.modifiers,
