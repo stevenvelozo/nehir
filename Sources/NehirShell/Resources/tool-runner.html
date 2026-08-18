@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>nehir · tool runner</title>
+<script src="retold-tool-manager.min.js"></script>
+<style>
+	:root {
+		--bg: #0d1117; --panel: #161b22; --ink: #e6edf3; --muted: #8b949e;
+		--line: #283039; --accent: #4c8dff; --accent-ink: #08111f;
+		--chip: #21262d; --code-bg: #010409; --code-ink: #c9d5e5;
+		--good: #3fb950; --warn: #d29922;
+	}
+	* { box-sizing: border-box; }
+	html, body { height: 100%; }
+	body { margin: 0; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: var(--bg); color: var(--ink); }
+	header { padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; gap: 12px; }
+	header h1 { margin: 0; font-size: 13px; font-weight: 650; }
+	.modes { margin-left: auto; display: flex; gap: 4px; background: var(--chip); padding: 3px; border-radius: 8px; }
+	.modes button { border: 0; background: transparent; color: var(--muted); padding: 5px 12px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+	.modes button.active { background: var(--accent); color: var(--accent-ink); }
+	.layout { display: grid; grid-template-columns: 210px 1fr; height: calc(100% - 42px); }
+	.rail { border-right: 1px solid var(--line); background: var(--panel); padding: 7px; overflow-y: auto; }
+	.rail button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink); padding: 7px 9px; border-radius: 7px; cursor: pointer; }
+	.rail button:hover { background: var(--chip); }
+	.rail button.active { background: var(--accent); color: var(--accent-ink); }
+	.rail button .sub { display: block; font-size: 10px; color: var(--muted); margin-top: 1px; }
+	.rail button.active .sub { color: var(--accent-ink); opacity: 0.85; }
+	main { padding: 16px; overflow-y: auto; }
+	.tool-summary { color: var(--muted); margin: 0 0 14px; }
+	.param { padding: 8px 0; border-bottom: 1px solid var(--line); }
+	.param label.name { font-weight: 600; display: block; }
+	.param .docs { color: var(--muted); font-size: 11px; margin: 2px 0 6px; }
+	.param input[type=text], .param input[type=number], .param select {
+		width: 100%; max-width: 440px; padding: 6px 8px; border: 1px solid var(--line);
+		border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit;
+	}
+	.param.toggle { display: flex; align-items: baseline; gap: 9px; }
+	.param.toggle input { margin-top: 2px; }
+	.param.toggle .body { flex: 1; }
+	.rep-row, .tpl-row { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
+	.rep-row input { flex: 1; }
+	.mini { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 11px; }
+	.tpl { border: 1px dashed var(--line); border-radius: 7px; padding: 7px 9px; max-width: 440px; }
+	.tpl .f { font-size: 11px; color: var(--muted); min-width: 110px; }
+	.hint { display: inline-block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; }
+	.command { position: sticky; bottom: 0; margin-top: 16px; background: var(--bg); padding-top: 8px; }
+	.command .bar { display: flex; gap: 7px; align-items: center; margin-bottom: 6px; }
+	.command .bar h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); flex: 1; }
+	.btn { border: 0; border-radius: 7px; padding: 6px 12px; cursor: pointer; font: inherit; font-weight: 600; font-size: 12px; }
+	.btn.primary { background: var(--accent); color: var(--accent-ink); }
+	.btn.ghost { background: var(--chip); color: var(--ink); }
+	pre.code { margin: 0; background: var(--code-bg); color: var(--code-ink); padding: 11px 13px; border-radius: 9px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+	.warn { color: var(--warn); font-size: 11px; margin-top: 6px; min-height: 14px; }
+	.badge { display: inline-block; font-size: 10px; color: var(--warn); border: 1px solid var(--warn); border-radius: 5px; padding: 1px 6px; margin-left: 8px; }
+	.step { border: 1px solid var(--line); border-radius: 11px; padding: 11px 13px; margin-bottom: 4px; background: var(--panel); }
+	.step .head { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+	.step .head select { padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-weight: 600; }
+	.step .head .idx { font-size: 11px; color: var(--muted); }
+	.pipe { text-align: center; color: var(--muted); font: 12px ui-monospace, monospace; margin: 2px 0; }
+	.recipe-wrap { max-width: 720px; }
+	.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--accent-ink); padding: 7px 16px; border-radius: 8px; font-weight: 600; font-size: 12px; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+	.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+	<header>
+		<h1>nehir · tool runner</h1>
+		<div class="modes">
+			<button id="mode-single" class="active">Single tool</button>
+			<button id="mode-recipe">Recipe</button>
+		</div>
+	</header>
+
+	<div id="single-view">
+		<div class="layout">
+			<nav class="rail" id="rail"></nav>
+			<main><div id="tool-body"></div></main>
+		</div>
+	</div>
+
+	<div id="recipe-view" hidden>
+		<main>
+			<div class="recipe-wrap">
+				<p class="tool-summary">Chain tools into one shell one-liner. Pipes auto-wire stdin/stdout; interactive stages (fzf, less, mplayer) want a terminal.</p>
+				<div id="recipe-steps"></div>
+				<button class="mini" id="addStep" style="margin:6px 0 2px">+ add step</button>
+				<div class="command">
+					<div class="bar">
+						<h3>One-liner <span id="recipe-badge"></span></h3>
+						<button class="btn ghost" data-target="clipboard" data-recipe>Copy</button>
+						<button class="btn ghost" data-target="terminal" data-recipe>Terminal ▸</button>
+						<button class="btn primary" data-target="embedded" data-recipe>Run here ▸</button>
+					</div>
+					<pre class="code" id="recipe-cmd">…</pre>
+				</div>
+			</div>
+		</main>
+	</div>
+
+	<div class="toast" id="toast"></div>
+
+<script>
+	const RTM = window.RetoldToolManager;
+	const MGR = RTM ? RTM.createManager() : null;
+	const PLATFORM = { Platform: 'darwin' };
+	const NEHIR = (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehir) || null;
+
+	let TOOLS = [], TOOLMAP = {};
+	let CURRENT = null; const VALUES = {};
+	let STEPS = [];
+
+	function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1300); }
+
+	// Send a run request to the nehir shell; degrade gracefully when opened outside nehir.
+	function dispatch(target, oneLiner, interactive)
+	{
+		if (NEHIR) { NEHIR.postMessage({ action: 'run', target: target, command: oneLiner, interactive: !!interactive }); }
+		else if (target === 'clipboard') { navigator.clipboard && navigator.clipboard.writeText(oneLiner); }
+		else { toast('Runs in nehir'); return; }
+		toast(target === 'clipboard' ? 'Copied' : target === 'terminal' ? 'Opened in Terminal' : 'Running here');
+	}
+
+	function boot()
+	{
+		if (!MGR) { document.getElementById('tool-body').innerHTML = '<p class="tool-summary">retold-tool-manager bundle failed to load.</p>'; return; }
+		TOOLS = MGR.listTools();
+		TOOLS.forEach((t) => { TOOLMAP[t.Tool] = t; });
+		const rail = document.getElementById('rail');
+		TOOLS.forEach((pTool) =>
+		{
+			const b = document.createElement('button');
+			b.innerHTML = `${pTool.Tool}<span class="sub">${pTool.Summary || ''}</span>`;
+			b.onclick = () => selectTool(pTool.Tool);
+			b.dataset.tool = pTool.Tool;
+			rail.appendChild(b);
+		});
+		document.getElementById('mode-single').onclick = () => setMode('single');
+		document.getElementById('mode-recipe').onclick = () => setMode('recipe');
+		document.getElementById('addStep').onclick = () => addStep();
+		document.querySelectorAll('[data-recipe]').forEach((b) => b.onclick = () => dispatchRecipe(b.dataset.target));
+		if (TOOLS.length) { selectTool(TOOLS[0].Tool); }
+	}
+
+	function setMode(m)
+	{
+		document.getElementById('single-view').hidden = (m !== 'single');
+		document.getElementById('recipe-view').hidden = (m !== 'recipe');
+		[ 'single', 'recipe' ].forEach((x) => document.getElementById('mode-' + x).classList.toggle('active', x === m));
+		if ((m === 'recipe') && (STEPS.length === 0)) { addStep(); addStep(); }
+	}
+
+	function seedDefaults(pTool, store) { (pTool.Parameters || []).forEach((p) => { if (p.Default !== undefined) { store[p.Name] = p.Default; } }); }
+
+	function renderParam(p, store, onChange)
+	{
+		const wrap = document.createElement('div');
+		wrap.className = 'param' + (p.Type === 'Toggle' ? ' toggle' : '');
+		const hint = `<span class="hint">${p.Type}${p.Repeatable ? ' ×n' : ''}${p.Positional ? ' pos' : ''}${p.Required ? ' req' : ''}</span>`;
+
+		if (p.Type === 'Toggle')
+		{
+			const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!store[p.Name];
+			cb.onchange = () => { store[p.Name] = cb.checked; onChange(); };
+			const body = document.createElement('div'); body.className = 'body';
+			body.innerHTML = `<label class="name">${p.Label || p.Name}${hint}</label>${p.Docs ? `<div class="docs">${p.Docs}</div>` : ''}`;
+			wrap.appendChild(cb); wrap.appendChild(body); return wrap;
+		}
+
+		wrap.innerHTML = `<label class="name">${p.Label || p.Name}${hint}</label>${p.Docs ? `<div class="docs">${p.Docs}</div>` : ''}`;
+
+		if (p.Type === 'Template')
+		{
+			const tpl = document.createElement('div'); tpl.className = 'tpl'; store[p.Name] = store[p.Name] || {};
+			(p.Fields || []).forEach((f) =>
+			{
+				if ((f.Default !== undefined) && (store[p.Name][f.Name] === undefined)) { store[p.Name][f.Name] = f.Default; }
+				const row = document.createElement('div'); row.className = 'tpl-row';
+				const lbl = document.createElement('div'); lbl.className = 'f'; lbl.textContent = f.Label || f.Name;
+				const inp = document.createElement('input'); inp.type = (f.Type === 'Number') ? 'number' : 'text';
+				if (store[p.Name][f.Name] !== undefined) { inp.value = store[p.Name][f.Name]; }
+				inp.oninput = () => { store[p.Name][f.Name] = inp.value; onChange(); };
+				row.appendChild(lbl); row.appendChild(inp); tpl.appendChild(row);
+			});
+			wrap.appendChild(tpl); return wrap;
+		}
+
+		if (p.Repeatable)
+		{
+			store[p.Name] = Array.isArray(store[p.Name]) ? store[p.Name] : [];
+			const list = document.createElement('div');
+			const sync = () => { store[p.Name] = Array.from(list.querySelectorAll('input')).map((i) => i.value).filter((v) => v !== ''); onChange(); };
+			const addRow = (val) =>
+			{
+				const row = document.createElement('div'); row.className = 'rep-row';
+				const inp = document.createElement('input'); inp.type = 'text'; inp.value = val || ''; inp.placeholder = p.Example ? ('e.g. ' + p.Example) : p.Type;
+				const rm = document.createElement('button'); rm.className = 'mini'; rm.textContent = '✕';
+				inp.oninput = sync; rm.onclick = () => { row.remove(); sync(); };
+				row.appendChild(inp); row.appendChild(rm); list.appendChild(row);
+			};
+			(store[p.Name].length ? store[p.Name] : ['']).forEach(addRow);
+			const add = document.createElement('button'); add.className = 'mini'; add.textContent = '+ add'; add.onclick = () => addRow('');
+			wrap.appendChild(list); wrap.appendChild(add); return wrap;
+		}
+
+		if (p.Type === 'Enum')
+		{
+			const sel = document.createElement('select');
+			sel.innerHTML = '<option value="">—</option>' + (p.Choices || []).map((c) => `<option>${c}</option>`).join('');
+			if (store[p.Name]) { sel.value = store[p.Name]; }
+			sel.onchange = () => { store[p.Name] = sel.value; onChange(); };
+			wrap.appendChild(sel); return wrap;
+		}
+
+		const inp = document.createElement('input'); inp.type = (p.Type === 'Number') ? 'number' : 'text';
+		if (store[p.Name] !== undefined) { inp.value = store[p.Name]; }
+		inp.placeholder = p.Example ? ('e.g. ' + p.Example) : p.Type;
+		inp.oninput = () => { store[p.Name] = inp.value; onChange(); };
+		wrap.appendChild(inp); return wrap;
+	}
+
+	function renderForm(tool, store, onChange, compact, container)
+	{
+		container.innerHTML = '';
+		if (!compact)
+		{
+			const h = document.createElement('p'); h.className = 'tool-summary'; h.textContent = tool.Docs || tool.Summary || '';
+			container.appendChild(h);
+			if (tool.ManPage || (tool.SeeAlso && tool.SeeAlso.length))
+			{
+				const meta = document.createElement('div'); meta.style.cssText = 'font-size:11px;color:var(--muted);margin:-8px 0 12px';
+				const bits = []; if (tool.ManPage) { bits.push('man ' + tool.ManPage); } if (tool.SeeAlso && tool.SeeAlso.length) { bits.push('see also: ' + tool.SeeAlso.join(', ')); }
+				meta.textContent = bits.join('  ·  '); container.appendChild(meta);
+			}
+		}
+		(tool.Parameters || []).forEach((p) => container.appendChild(renderParam(p, store, onChange)));
+	}
+
+	// ---- single ----
+	function selectTool(pName)
+	{
+		CURRENT = TOOLMAP[pName];
+		Object.keys(VALUES).forEach((k) => delete VALUES[k]);
+		seedDefaults(CURRENT, VALUES);
+		document.querySelectorAll('#rail button').forEach((b) => b.classList.toggle('active', b.dataset.tool === pName));
+		const body = document.getElementById('tool-body');
+		const form = document.createElement('div'); renderForm(CURRENT, VALUES, refreshSingle, false, form);
+		body.innerHTML = ''; body.appendChild(form);
+		const cmd = document.createElement('div'); cmd.className = 'command'; cmd.innerHTML = `
+			<div class="bar"><h3>Command</h3>
+				<button class="btn ghost" data-t="clipboard">Copy</button>
+				<button class="btn ghost" data-t="terminal">Terminal ▸</button>
+				<button class="btn primary" data-t="embedded">Run here ▸</button></div>
+			<pre class="code" id="cmd">…</pre><div class="warn" id="warn"></div>`;
+		body.appendChild(cmd);
+		cmd.querySelectorAll('[data-t]').forEach((b) => b.onclick = () => dispatchSingle(b.dataset.t));
+		refreshSingle();
+	}
+
+	function refreshSingle()
+	{
+		const d = {}; MGR.compile(CURRENT.Tool, VALUES, d, PLATFORM);
+		document.getElementById('cmd').textContent = d.Shell || '';
+		document.getElementById('warn').textContent = (d.Warnings && d.Warnings.length) ? ('⚠ ' + d.Warnings.join('  ·  ')) : '';
+	}
+
+	function dispatchSingle(target)
+	{
+		const d = {}; MGR.compile(CURRENT.Tool, VALUES, d, PLATFORM);
+		if (!d.Shell) { toast('Nothing to run'); return; }
+		dispatch(target, d.Shell, false);
+	}
+
+	// ---- recipe ----
+	function addStep()
+	{
+		const name = TOOLS[0].Tool; const step = { tool: name, values: {} };
+		seedDefaults(TOOLMAP[name], step.values); STEPS.push(step); renderRecipe(); refreshRecipe();
+	}
+	function removeStep(i) { STEPS.splice(i, 1); renderRecipe(); refreshRecipe(); }
+
+	function renderRecipe()
+	{
+		const host = document.getElementById('recipe-steps'); host.innerHTML = '';
+		STEPS.forEach((step, i) =>
+		{
+			if (i > 0) { const pipe = document.createElement('div'); pipe.className = 'pipe'; pipe.textContent = '│ pipe ▼'; host.appendChild(pipe); }
+			const card = document.createElement('div'); card.className = 'step';
+			const head = document.createElement('div'); head.className = 'head';
+			const idx = document.createElement('span'); idx.className = 'idx'; idx.textContent = '#' + (i + 1);
+			const sel = document.createElement('select');
+			sel.innerHTML = TOOLS.map((t) => `<option${t.Tool === step.tool ? ' selected' : ''}>${t.Tool}</option>`).join('');
+			sel.onchange = () => { step.tool = sel.value; step.values = {}; seedDefaults(TOOLMAP[step.tool], step.values); renderRecipe(); refreshRecipe(); };
+			const rm = document.createElement('button'); rm.className = 'mini'; rm.textContent = '✕'; rm.style.marginLeft = 'auto'; rm.onclick = () => removeStep(i);
+			head.appendChild(idx); head.appendChild(sel); head.appendChild(rm); card.appendChild(head);
+			const form = document.createElement('div'); renderForm(TOOLMAP[step.tool], step.values, refreshRecipe, true, form); card.appendChild(form);
+			host.appendChild(card);
+		});
+	}
+
+	function recipeSpec() { return { Steps: STEPS.map((s) => ({ Tool: s.tool, Values: s.values })), Connectors: STEPS.slice(1).map(() => ({ Kind: 'Pipe' })) }; }
+
+	function refreshRecipe()
+	{
+		const d = {}; MGR.compileRecipe(recipeSpec(), {}, d, PLATFORM);
+		document.getElementById('recipe-cmd').textContent = d.OneLiner || '';
+		document.getElementById('recipe-badge').innerHTML = d.Interactive ? '<span class="badge">interactive · run here</span>' : '';
+	}
+
+	function dispatchRecipe(target)
+	{
+		const d = {}; MGR.compileRecipe(recipeSpec(), {}, d, PLATFORM);
+		if (!d.OneLiner) { toast('Nothing to run'); return; }
+		dispatch(target, d.OneLiner, d.Interactive);
+	}
+
+	boot();
+</script>
+</body>
+</html>

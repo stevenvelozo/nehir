@@ -69,6 +69,10 @@ final class OverlayController {
     /// across summons so re-opening is instant and page state survives. `lastLoaded`
     /// avoids reloading the same URL on a warm re-summon.
     private var webViews: [String: WKWebView] = [:]
+    /// One message bridge per webview-overlay id, retained alongside its web view.
+    private var webBridges: [String: OverlayWebBridge] = [:]
+    /// Floating SwiftTerm panel for the "Run here" target.
+    private let terminalController = OverlayTerminalController()
     private var lastLoadedURL: [String: URL] = [:]
     /// True while an interactive overlay is up (it activated the app so clicks and
     /// keys land); drives returning focus to the previous app on dismiss.
@@ -118,6 +122,7 @@ final class OverlayController {
     func start(bindings: [OverlayBinding]) {
         _ = try? core.evaluate(Self.bootstrapJS)
         installCapabilities()
+        _ = try? core.evaluate(Self.builtinToolsJS)
         loadScripts()
         bindHotkeys(bindings)
     }
@@ -455,8 +460,16 @@ final class OverlayController {
     /// can take keyboard focus, and dismiss restores focus to the previous app.
     private func presentWebview(id: String, spec: OverlaySpec) {
         let frame = panelFrame(for: spec.present)
-        let webView = webViews[id] ?? OverlayWebPanel.makeWebView()
-        webViews[id] = webView
+        let webView: WKWebView
+        if let cached = webViews[id] {
+            webView = cached
+        } else {
+            let bridge = OverlayWebBridge()
+            bridge.onAction = { [weak self] body in self?.handleWebAction(body) }
+            webBridges[id] = bridge
+            webView = OverlayWebPanel.makeWebView(bridge: bridge)
+            webViews[id] = webView
+        }
         lastLoadedURL[id] = OverlayWebPanel.load(spec.source.url, into: webView, lastLoaded: lastLoadedURL[id])
 
         let container = NSView(frame: CGRect(origin: .zero, size: frame.size))
@@ -487,6 +500,87 @@ final class OverlayController {
                 self?.hide()
             }
         }
+    }
+
+    // MARK: - Webview action bridge (run a compiled command)
+
+    /// The built-in "tools" overlay: the retold-tool-manager command builder,
+    /// rendered from the page bundled with the shell and registered on the Deck
+    /// under Extensions (⌘D → x). A user can still bind a standalone hotkey via a
+    /// shell.d [[overlay]] block for id "tools".
+    private static let builtinToolsJS = """
+    shell.overlay.register("tools", function () {
+      return {
+        source: { kind: "webview", url: "nehir-resource://tool-runner.html" },
+        present: { anchor: "activeMonitorCenter", sizeClass: "large" },
+        dismiss: { on: ["esc", "clickAway", "retrigger"] }
+      };
+    });
+    shell.overlay.osd("tools", { group: "Extensions", key: "x", label: "Tools" }, function () { return "Command builder"; });
+    """
+
+    /// Handle an action a webview overlay posted via `window.webkit.messageHandlers.nehir`.
+    private func handleWebAction(_ body: [String: Any]) {
+        guard let action = body["action"] as? String else { return }
+        switch action {
+        case "run":
+            let command = (body["command"] as? String) ?? ""
+            guard !command.isEmpty else { return }
+            runWebCommand(command, target: (body["target"] as? String) ?? "clipboard")
+        default:
+            core.log(.warn, "unknown webview action", ["action": action])
+        }
+    }
+
+    /// Dispatch a compiled command to a run target: `clipboard` copies it,
+    /// `embedded` runs it in a floating SwiftTerm terminal ("Run here"), anything
+    /// else launches it in a fresh external Terminal window.
+    private func runWebCommand(_ command: String, target: String) {
+        switch target {
+        case "clipboard":
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(command, forType: .string)
+        case "embedded":
+            presentTerminal(command)
+        default:
+            openInTerminal(command)
+        }
+    }
+
+    /// Open a fresh Terminal window running `command`, via AppleScript `do script`
+    /// (needs only the Automation permission Nehir already requests).
+    private func openInTerminal(_ command: String) {
+        let escaped = command
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let source = """
+        tell application "Terminal"
+            activate
+            do script "\(escaped)"
+        end tell
+        """
+        var error: NSDictionary?
+        NSAppleScript(source: source)?.executeAndReturnError(&error)
+        if let error {
+            core.log(.warn, "failed to open command in Terminal", ["error": String(describing: error)])
+        }
+    }
+
+    /// Run `command` in a floating SwiftTerm terminal. The tool overlay steps
+    /// aside (its panel dismisses) so the terminal takes keyboard focus; closing
+    /// the terminal relinquishes focus back to the previous app.
+    private func presentTerminal(_ command: String) {
+        hide()
+        terminalController.run(command: command, frame: terminalFrame()) {
+            NSApp.deactivate()
+        }
+    }
+
+    /// A centered terminal frame on the active screen.
+    private func terminalFrame() -> CGRect {
+        let visible = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let size = CGSize(width: min(980, visible.width * 0.7), height: min(620, visible.height * 0.72))
+        return CGRect(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2, width: size.width, height: size.height)
     }
 
     private func quickLookSelected() {

@@ -34,7 +34,13 @@ let package = Package(
         .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),
         // NEHIR-SHELL SEAM — Sparkle auto-updater. A fork feature used only by the
         // NehirShell layer; upstream builds without it stay untouched.
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+        // NEHIR-SHELL SEAM — SwiftTerm embedded terminal for the Tools overlay's
+        // "Run here" target. Fork feature; NehirShell layer only. Pinned below
+        // 1.12 on purpose: 1.12+ ships an optional Metal GPU renderer whose
+        // Shaders.metal forces the Metal toolchain onto every release/CI build.
+        // We use the CPU renderer, so the pre-GPU line avoids that dependency.
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", .upToNextMinor(from: "1.11.2"))
     ],
     targets: [
         .target(
@@ -129,7 +135,9 @@ let package = Package(
                 "NehirShellWire",
                 .product(name: "TOML", package: "swift-toml"),
                 // NEHIR-SHELL SEAM — Sparkle auto-updater (fork feature).
-                .product(name: "Sparkle", package: "Sparkle")
+                .product(name: "Sparkle", package: "Sparkle"),
+                // NEHIR-SHELL SEAM — SwiftTerm embedded terminal (fork feature).
+                .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
             path: "Sources/NehirShell",
             resources: [

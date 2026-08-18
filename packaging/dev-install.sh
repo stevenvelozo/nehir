@@ -17,12 +17,37 @@ if pgrep -x Nehir >/dev/null 2>&1; then
   die "Nehir is running — quit it from the menu bar first, then re-run this."
 fi
 
-log "Building + Developer-ID signing Nehir.app $VERSION (skipping notarization)…"
-SIGN_AND_NOTARIZE=true \
+# Stamp a very high dev version so Sparkle never offers to "update" this local
+# build DOWN to a published release. This must happen BEFORE the build (the
+# packager copies Info.plist into the app, then signs it — a post-sign edit
+# would break the signature). The tracked Info.plist is restored on exit, even
+# on failure, so the repo stays at its baseline version.
+DEV_VERSION="9999.0.0"
+_orig_short="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Info.plist")"
+_orig_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ROOT_DIR/Info.plist")"
+restore_info_plist() {
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $_orig_short" "$ROOT_DIR/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $_orig_build" "$ROOT_DIR/Info.plist"
+}
+trap restore_info_plist EXIT
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $DEV_VERSION" "$ROOT_DIR/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $DEV_VERSION" "$ROOT_DIR/Info.plist"
+
+log "Building + Developer-ID signing Nehir.app $DEV_VERSION (dev, skipping notarization)…"
+# Capture the (noisy) release build/sign output to a log so a clean run stays
+# quiet, but a FAILURE is surfaced instead of swallowed — otherwise a failed
+# build looks exactly like "Nehir quit but never came back".
+build_log="$(mktemp -t nehir-dev-install)"
+if ! SIGN_AND_NOTARIZE=true \
   SIGNING_IDENTITY="$SIGNING_IDENTITY" \
   NOTARIZE_SKIP=true \
   ENTITLEMENTS="$ROOT_DIR/Nehir.entitlements" \
-  bash "$ROOT_DIR/.config/mise/tasks/package/release" true >/dev/null
+  bash "$ROOT_DIR/.config/mise/tasks/package/release" true >"$build_log" 2>&1; then
+  cat "$build_log" >&2
+  rm -f "$build_log"
+  die "release build/sign failed (output above)."
+fi
+rm -f "$build_log"
 
 log "Installing to ~/Applications + ~/.local/bin…"
 rm -rf "$HOME/Applications/Nehir.app"

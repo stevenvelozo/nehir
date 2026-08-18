@@ -31,18 +31,60 @@ final class OverlayKeyPanel: NSPanel {
         super.resignKey()
         onResignKey?()
     }
+
+    /// ⌘W closes the panel even when a subview is swallowing ordinary keystrokes
+    /// — e.g. an embedded terminal that (correctly) captures Esc for fzf/vim.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "w" {
+            onEsc?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 /// Builds and configures the panel + web view for a webview overlay. The web view
 /// itself is warm-cached by the controller (created once, reused across summons)
 /// so re-summoning is instant and keeps page state; only the lightweight panel is
 /// rebuilt each time and re-adopts the cached view.
+/// Bridges `window.webkit.messageHandlers.nehir.postMessage({...})` from a webview
+/// overlay back to the shell. The page posts a JSON action (today: a run request);
+/// the controller wired into `onAction` decides what to do with it. Holding the
+/// callback (rather than the controller) keeps this free of a retain cycle.
+@MainActor
+final class OverlayWebBridge: NSObject, @preconcurrency WKScriptMessageHandler {
+    var onAction: ([String: Any]) -> Void = { _ in }
+
+    func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any] else { return }
+        onAction(body)
+    }
+}
+
 enum OverlayWebPanel {
-    static func makeWebView() -> WKWebView {
+    static func makeWebView(bridge: OverlayWebBridge? = nil) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        if let bridge {
+            configuration.userContentController.add(bridge, name: "nehir")
+        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.autoresizingMask = [.width, .height]
         return webView
+    }
+
+    /// Resolve a webview overlay URL. A `nehir-resource://<file>` URL maps to a
+    /// page bundled with the shell (e.g. the tool-runner); everything else is a
+    /// plain http/https or file URL.
+    private static func resolve(_ urlString: String) -> URL? {
+        let scheme = "nehir-resource://"
+        if urlString.hasPrefix(scheme) {
+            let name = String(urlString.dropFirst(scheme.count))
+            let base = (name as NSString).deletingPathExtension
+            let ext = (name as NSString).pathExtension
+            return Bundle.module.url(forResource: base, withExtension: ext)
+        }
+        return URL(string: urlString)
     }
 
     /// Load `url` into `webView` only if it differs from what it last loaded, so a
@@ -50,7 +92,7 @@ enum OverlayWebPanel {
     /// settled on so the caller can track it.
     @discardableResult
     static func load(_ urlString: String?, into webView: WKWebView, lastLoaded: URL?) -> URL? {
-        guard let urlString, let url = URL(string: urlString) else { return lastLoaded }
+        guard let urlString, let url = resolve(urlString) else { return lastLoaded }
         guard url != lastLoaded else { return lastLoaded }
         if url.isFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
