@@ -23,7 +23,7 @@ sleep 2
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-echo "▸ Downloading the latest release of $REPO…"
+echo "▸ Downloading the latest release of ${REPO}…"
 gh release download --repo "$REPO" --pattern 'Nehir-*.zip' --dir "$tmp"
 zip="$(ls "$tmp"/Nehir-*.zip 2>/dev/null | head -1)"
 [ -n "$zip" ] || { echo "No Nehir-*.zip asset found on the latest release." >&2; exit 1; }
@@ -38,6 +38,6 @@ cp -R "$app" "$DEST"
 xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DEST/Contents/Info.plist" 2>/dev/null || echo '?')"
-echo "▸ Launching Nehir $version…"
+echo "▸ Launching Nehir ${version}…"
 open "$DEST"
 echo "✓ Switched to the released build (Nehir $version). Your ~/.local/bin ctl tools are unchanged; re-run dev-install to go back to the local build."
