@@ -98,9 +98,13 @@ final class DeckModel {
     /// Send the current window/column to ordinal `digit` (1…9, 0 = the 10th), shifting the
     /// others over, then reveal (scroll to) the new position. Keyboard-only — ⌘D then ⌘digit.
     func sendWindowToOrdinal(_ digit: Int) {
-        let index = digit == 0 ? 9 : digit - 1
-        perform(.moveColumnToIndex(index))
-        perform(.focusColumn(index))
+        // `digit` is the slot number the user pressed (1…9, 0 = the 10th). The move and
+        // focus engine APIs disagree on base: moveColumnToIndex is 1-based (its parameter
+        // is `oneBasedIndex`), focusColumn is 0-based. Feed each the base it expects so the
+        // window lands on — and the view scrolls to — the same slot the user pressed.
+        let ordinal = digit == 0 ? 10 : digit
+        perform(.moveColumnToIndex(ordinal))
+        perform(.focusColumn(ordinal - 1))
         onClose()
     }
 
