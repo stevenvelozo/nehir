@@ -55,6 +55,7 @@ struct AppRule: Codable, Identifiable, Equatable {
         case minWidth
         case minHeight
         case sticky
+        case soloColumn
     }
 
     let id: UUID
@@ -70,6 +71,10 @@ struct AppRule: Codable, Identifiable, Equatable {
     var minWidth: Double?
     var minHeight: Double?
     var sticky: Bool?
+    /// When true, windows matching this rule are never stacked into a shared column — each opens
+    /// (and restores) in its own lane. For apps like Screen Sharing that should always own their
+    /// column and never split height with a sibling window.
+    var soloColumn: Bool?
 
     init(
         id: UUID = UUID(),
@@ -84,7 +89,8 @@ struct AppRule: Codable, Identifiable, Equatable {
         assignToWorkspace: String? = nil,
         minWidth: Double? = nil,
         minHeight: Double? = nil,
-        sticky: Bool? = nil
+        sticky: Bool? = nil,
+        soloColumn: Bool? = nil
     ) {
         self.id = id
         self.bundleId = bundleId
@@ -99,6 +105,7 @@ struct AppRule: Codable, Identifiable, Equatable {
         self.minWidth = minWidth
         self.minHeight = minHeight
         self.sticky = sticky
+        self.soloColumn = soloColumn
     }
 
     var effectiveManageAction: WindowRuleManageAction {
@@ -136,6 +143,7 @@ struct AppRule: Codable, Identifiable, Equatable {
             assignToWorkspace != nil ||
             minWidth != nil || minHeight != nil ||
             sticky != nil ||
+            soloColumn != nil ||
             hasAdvancedMatchers
     }
 
@@ -154,5 +162,6 @@ struct AppRule: Codable, Identifiable, Equatable {
         minWidth = try container.decodeIfPresent(Double.self, forKey: .minWidth)
         minHeight = try container.decodeIfPresent(Double.self, forKey: .minHeight)
         sticky = try container.decodeIfPresent(Bool.self, forKey: .sticky)
+        soloColumn = try container.decodeIfPresent(Bool.self, forKey: .soloColumn)
     }
 }

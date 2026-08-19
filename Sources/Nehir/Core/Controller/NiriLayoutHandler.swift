@@ -629,7 +629,20 @@ enum NiriWindowMoveResult {
             }
         }
 
-        pass.engine.restoreInitialPlacements(placements, matching: windowTokens, in: pass.wsId)
+        // Windows whose app rule asks for a solo column are excluded from restore stacking so
+        // each is restored into its own lane (e.g. two Screen Sharing windows no longer split one
+        // column into half-height halves).
+        var soloColumnTokens: Set<WindowToken> = []
+        for token in windowTokens where controller.workspaceManager.entry(for: token)?.ruleEffects.soloColumn == true {
+            soloColumnTokens.insert(token)
+        }
+
+        pass.engine.restoreInitialPlacements(
+            placements,
+            matching: windowTokens,
+            soloColumnTokens: soloColumnTokens,
+            in: pass.wsId
+        )
     }
 
     private func processWindowRemovals(

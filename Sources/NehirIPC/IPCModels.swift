@@ -1590,6 +1590,7 @@ public struct IPCRuleDefinition: Codable, Equatable, Sendable {
     public let minWidth: Double?
     public let minHeight: Double?
     public let sticky: Bool?
+    public let soloColumn: Bool?
 
     public init(
         bundleId: String,
@@ -1603,7 +1604,8 @@ public struct IPCRuleDefinition: Codable, Equatable, Sendable {
         assignToWorkspace: String? = nil,
         minWidth: Double? = nil,
         minHeight: Double? = nil,
-        sticky: Bool? = nil
+        sticky: Bool? = nil,
+        soloColumn: Bool? = nil
     ) {
         self.bundleId = bundleId
         self.appNameSubstring = appNameSubstring
@@ -1617,6 +1619,7 @@ public struct IPCRuleDefinition: Codable, Equatable, Sendable {
         self.minWidth = minWidth
         self.minHeight = minHeight
         self.sticky = sticky
+        self.soloColumn = soloColumn
     }
 }
 
@@ -2410,6 +2413,7 @@ public struct IPCRuleSnapshot: Codable, Equatable, Sendable {
     public let minWidth: Double?
     public let minHeight: Double?
     public let sticky: Bool?
+    public let soloColumn: Bool?
     public let specificity: Int
     public let isValid: Bool
     public let invalidRegexMessage: String?
@@ -2429,6 +2433,7 @@ public struct IPCRuleSnapshot: Codable, Equatable, Sendable {
         minWidth: Double? = nil,
         minHeight: Double? = nil,
         sticky: Bool? = nil,
+        soloColumn: Bool? = nil,
         specificity: Int,
         isValid: Bool,
         invalidRegexMessage: String? = nil
@@ -2447,6 +2452,7 @@ public struct IPCRuleSnapshot: Codable, Equatable, Sendable {
         self.minWidth = minWidth
         self.minHeight = minHeight
         self.sticky = sticky
+        self.soloColumn = soloColumn
         self.specificity = specificity
         self.isValid = isValid
         self.invalidRegexMessage = invalidRegexMessage

@@ -48,6 +48,8 @@ struct ManagedWindowRuleEffects: Equatable, Sendable {
     var minHeight: Double?
     var matchedRuleId: UUID?
     var sticky: Bool?
+    /// The matched rule asked that this app's windows never share a column (own lane each).
+    var soloColumn: Bool?
 
     static let none = ManagedWindowRuleEffects()
 }
@@ -501,7 +503,8 @@ final class WindowRuleEngine {
             minWidth: userRule?.rule.minWidth,
             minHeight: userRule?.rule.minHeight,
             matchedRuleId: userRule?.rule.id,
-            sticky: userRule?.rule.sticky ?? (facts.pipDefaultStickyCandidate ? true : nil)
+            sticky: userRule?.rule.sticky ?? (facts.pipDefaultStickyCandidate ? true : nil),
+            soloColumn: userRule?.rule.soloColumn
         )
 
         if let userRule,

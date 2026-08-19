@@ -67,6 +67,7 @@ enum AppRuleFileStore {
         if let w = rule.minWidth { effectLines.append("minWidth = \(formatNumber(w))") }
         if let h = rule.minHeight { effectLines.append("minHeight = \(formatNumber(h))") }
         if let ws = rule.assignToWorkspace { effectLines.append("assignToWorkspace = \(quoted(ws))") }
+        if let solo = rule.soloColumn { effectLines.append("soloColumn = \(solo ? "true" : "false")") }
 
         if !effectLines.isEmpty {
             lines.append("")
@@ -244,6 +245,7 @@ enum AppRuleFileStore {
                 case "manage",
                      "layout",
                      "sticky",
+                     "soloColumn",
                      "minWidth",
                      "minHeight",
                      "assignToWorkspace":
@@ -343,7 +345,8 @@ enum AppRuleFileStore {
             assignToWorkspace: stringField(effectFields, "assignToWorkspace", path: "effect.assignToWorkspace"),
             minWidth: doubleField(effectFields, "minWidth", path: "effect.minWidth"),
             minHeight: doubleField(effectFields, "minHeight", path: "effect.minHeight"),
-            sticky: boolField(effectFields, "sticky", path: "effect.sticky")
+            sticky: boolField(effectFields, "sticky", path: "effect.sticky"),
+            soloColumn: boolField(effectFields, "soloColumn", path: "effect.soloColumn")
         )
         return (order, rule)
     }
@@ -450,6 +453,7 @@ enum AppRuleFileStore {
                 case "manage",
                      "layout",
                      "sticky",
+                     "soloColumn",
                      "minWidth",
                      "minHeight",
                      "assignToWorkspace":
@@ -501,6 +505,9 @@ enum AppRuleFileStore {
         }
         if let rawSticky = effectFields["sticky"], extractBool(rawSticky) == nil {
             messages.append("effect.sticky must be true or false")
+        }
+        if let rawSolo = effectFields["soloColumn"], extractBool(rawSolo) == nil {
+            messages.append("effect.soloColumn must be true or false")
         }
 
         return AppRuleDiagnostics(messages: messages, canClean: validBundleId)

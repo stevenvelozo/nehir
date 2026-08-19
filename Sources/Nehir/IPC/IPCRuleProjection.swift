@@ -48,6 +48,7 @@ enum IPCRuleProjection {
             minWidth: definition.minWidth,
             minHeight: definition.minHeight,
             sticky: definition.sticky,
+            soloColumn: definition.soloColumn,
             specificity: rule.specificity,
             isValid: isValid,
             invalidRegexMessage: invalidRegexMessage
@@ -68,7 +69,8 @@ enum IPCRuleProjection {
                 assignToWorkspace: rule.assignToWorkspace,
                 minWidth: rule.minWidth,
                 minHeight: rule.minHeight,
-                sticky: rule.sticky
+                sticky: rule.sticky,
+                soloColumn: rule.soloColumn
             )
         )
     }
@@ -88,7 +90,8 @@ enum IPCRuleProjection {
             assignToWorkspace: normalized.assignToWorkspace,
             minWidth: normalized.minWidth,
             minHeight: normalized.minHeight,
-            sticky: normalized.sticky
+            sticky: normalized.sticky,
+            soloColumn: normalized.soloColumn
         )
     }
 
@@ -105,7 +108,8 @@ enum IPCRuleProjection {
             assignToWorkspace: definition.assignToWorkspace?.trimmedNonEmpty,
             minWidth: definition.minWidth,
             minHeight: definition.minHeight,
-            sticky: definition.sticky
+            sticky: definition.sticky,
+            soloColumn: definition.soloColumn
         )
     }
 

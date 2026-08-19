@@ -24,7 +24,10 @@ enum BadgeDetail: Int, Comparable {
 /// drawn in a circle; floating windows carry their `⌘D V → n` index drawn in a rounded square.
 struct WindowBadge: Identifiable {
     let id = UUID()
-    let number: String
+    /// Stable across refreshes (derived from the window token), so a reordered list keeps each
+    /// row's SwiftUI identity — and thus its live drag gesture — instead of churning on new UUIDs.
+    var stableKey: String = ""
+    var number: String
     let isFloating: Bool
     let appName: String
     let appIcon: NSImage?
@@ -152,6 +155,7 @@ enum WindowBadgeBuilder {
             .flatMap { NehirShell.windowRules?.rule(bundleId: $0, title: title)?.minWidthPercent }
             .map { Int($0.rounded()) }
         return WindowBadge(
+            stableKey: "\(token.pid):\(token.windowId)",
             number: number,
             isFloating: isFloating,
             appName: app?.localizedName ?? "",
@@ -253,23 +257,54 @@ final class ColumnBadgeOverlayController {
 
 // MARK: - Feature 2: centered window list
 
-private struct WindowListView: View {
-    let managed: [WindowBadge]
+/// The centered list, now interactive: each column is a row you can drag vertically to reorder
+/// the tiling. Dropping a row at slot K moves that column to the 1-based ordinal K — the same
+/// target the ⌘-digit move uses. Floating windows are listed for reference but aren't
+/// reorderable. The panel behind this view is click-through outside the card, so dragging never
+/// steals focus from the bordered window.
+private struct ReorderableWindowListView: View {
     let floating: [WindowBadge]
-    /// Panel-local (top-origin) y at which to start the list, so it sits just below the Deck.
-    var topInset: CGFloat = 0
+    /// Uniform row height so the drag translation maps cleanly to a whole-slot delta, and so a
+    /// single gesture can resolve which row was grabbed from where the drag started.
+    var rowHeight: CGFloat = 48
+    /// (fromIndex 0-based, toOrdinal 1-based) — fired on drop, only when the slot changes.
+    let onReorder: (Int, Int) -> Void
+
+    /// The list owns its order for the life of the Deck session: a drop moves the row within THIS
+    /// array (relabelling + animating in place) and tells the engine to move the real window. It
+    /// is never rebuilt from outside mid-session — no teardown, no flash — so dragging keeps
+    /// working. Seeded once from the engine order (the Deck builds a fresh view each time shown).
+    @State private var order: [WindowBadge]
+    @State private var draggingIndex: Int?
+    @State private var translation: CGFloat = 0
+
+    init(columns: [WindowBadge], floating: [WindowBadge], rowHeight: CGFloat = 48,
+         onReorder: @escaping (Int, Int) -> Void) {
+        self.floating = floating
+        self.rowHeight = rowHeight
+        self.onReorder = onReorder
+        _order = State(initialValue: columns)
+    }
+
+    /// The 0-based slot the dragged row currently hovers over, from how many row heights it has
+    /// travelled. Clamped to the column range. `target + 1` is the 1-based ordinal to move to.
+    private var target: Int? {
+        guard let from = draggingIndex else { return nil }
+        let delta = Int((translation / rowHeight).rounded())
+        return min(max(from + delta, 0), order.count - 1)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if !managed.isEmpty {
-                header("Windows  ·  ⌘D + number")
-                ForEach(managed) { WindowBadgeChip(badge: $0) }
+            if !order.isEmpty {
+                header("Windows  ·  drag to reorder")
+                columnStack
             }
             if !floating.isEmpty {
                 header("Floating  ·  ⌘D V + number")
                 ForEach(floating) { WindowBadgeChip(badge: $0) }
             }
-            if managed.isEmpty, floating.isEmpty {
+            if order.isEmpty, floating.isEmpty {
                 Text("No windows on this workspace")
                     .font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(0.6))
             }
@@ -282,9 +317,63 @@ private struct WindowListView: View {
                     .strokeBorder(.white.opacity(0.14), lineWidth: 1))
                 .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
         )
-        .padding(.top, topInset)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .allowsHitTesting(false)
+    }
+
+    private var columnStack: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(order.enumerated()), id: \.element.stableKey) { index, badge in
+                // The number reflects the row's CURRENT position, so a reorder relabels live.
+                WindowBadgeChip(badge: renumbered(badge, at: index))
+                    .frame(height: rowHeight, alignment: .leading)
+                    .offset(y: rowOffset(for: index))
+                    .zIndex(draggingIndex == index ? 1 : 0)
+                    .opacity(draggingIndex == index ? 0.95 : 1)
+                    .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.82), value: target)
+            }
+        }
+        // The drag is handled by an AppKit mouse layer, NOT a SwiftUI gesture: a SwiftUI
+        // DragGesture in this non-key panel recognizes only ONCE per presentation — input goes
+        // dead until the list is re-presented. Discrete AppKit mouseDown/Dragged/Up (with
+        // acceptsFirstMouse) keeps delivering across repeated drags with no rebuild. The layer
+        // overlays the rows, so a mouse-down's y ÷ rowHeight is the grabbed row.
+        .overlay(
+            RowDragCatcher(
+                rowHeight: rowHeight,
+                rowCount: { order.count },
+                onBegin: { draggingIndex = $0 },
+                onChange: { translation = $0 },
+                onEnd: { drop() }
+            )
+        )
+    }
+
+    /// The badge relabelled to its current 0-based position (10th slot shows "0").
+    private func renumbered(_ badge: WindowBadge, at index: Int) -> WindowBadge {
+        var copy = badge
+        copy.number = index == 9 ? "0" : String(index + 1)
+        return copy
+    }
+
+    /// Commit the drag: move the row within our order (relabels + animates) and tell the engine
+    /// to move the real window to the same 1-based slot.
+    private func drop() {
+        defer { draggingIndex = nil; translation = 0 }
+        guard let from = draggingIndex, let to = target, to != from else { return }
+        var next = order
+        next.insert(next.remove(at: from), at: to)
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { order = next }
+        onReorder(from, to + 1)
+    }
+
+    /// Slide the non-dragged rows aside so a gap opens at the hover slot: rows between the
+    /// origin and the target shift one row height; the dragged row itself follows the cursor.
+    private func rowOffset(for index: Int) -> CGFloat {
+        guard let from = draggingIndex else { return 0 }
+        if index == from { return translation }
+        guard let to = target else { return 0 }
+        if from < to, index > from, index <= to { return -rowHeight }
+        if to < from, index >= to, index < from { return rowHeight }
+        return 0
     }
 
     private func header(_ text: String) -> some View {
@@ -295,16 +384,87 @@ private struct WindowListView: View {
     }
 }
 
+/// A transparent AppKit view laid over the column rows that turns mouse drags into reorder
+/// callbacks. Used instead of a SwiftUI `DragGesture` because that gesture goes deaf after one
+/// drag in this non-key panel; discrete AppKit mouse events keep working. `acceptsFirstMouse`
+/// lets a drag start even though the panel never becomes key.
+private struct RowDragCatcher: NSViewRepresentable {
+    let rowHeight: CGFloat
+    let rowCount: () -> Int
+    let onBegin: (Int) -> Void
+    let onChange: (CGFloat) -> Void
+    let onEnd: () -> Void
+
+    func makeNSView(context _: Context) -> CatcherView { CatcherView() }
+
+    func updateNSView(_ view: CatcherView, context _: Context) {
+        view.rowHeight = rowHeight
+        view.rowCount = rowCount
+        view.onBegin = onBegin
+        view.onChange = onChange
+        view.onEnd = onEnd
+    }
+
+    final class CatcherView: NSView {
+        var rowHeight: CGFloat = 48
+        var rowCount: () -> Int = { 0 }
+        var onBegin: (Int) -> Void = { _ in }
+        var onChange: (CGFloat) -> Void = { _ in }
+        var onEnd: () -> Void = {}
+
+        private var startY: CGFloat = 0
+        private var candidateRow: Int?
+        private var began = false
+
+        /// Top-left origin, y growing downward, to match the SwiftUI row layout.
+        override var isFlipped: Bool { true }
+        /// Start a drag even though the panel isn't key — otherwise the first click in a
+        /// background panel is swallowed as an activation attempt.
+        override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            let point = convert(event.locationInWindow, from: nil)
+            startY = point.y
+            began = false
+            let count = rowCount()
+            candidateRow = count > 0 ? min(max(Int(point.y / rowHeight), 0), count - 1) : nil
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let row = candidateRow else { return }
+            let dy = convert(event.locationInWindow, from: nil).y - startY
+            if !began {
+                guard abs(dy) >= 4 else { return } // matches a SwiftUI minimumDistance of 4
+                began = true
+                onBegin(row)
+            }
+            onChange(dy)
+        }
+
+        override func mouseUp(with _: NSEvent) {
+            if began { onEnd() }
+            candidateRow = nil
+            began = false
+        }
+    }
+}
+
 /// The separate centered list panel, toggled by F1/`i`. Lists every window (managed columns,
 /// then floating) in one place — the "is Chrome 8 or 9?" inventory. Independent of the
 /// on-window decorations.
 @MainActor
 final class WindowListOverlayController {
     private var panel: NSPanel?
+    /// The card is built once and kept alive across refreshes; a drag reorder updates its
+    /// `rootView` in place. Swapping the panel's content view instead would tear down the
+    /// gesture machinery mid-session, so the list could be dragged exactly once.
+    private var card: NSHostingView<ReorderableWindowListView>?
+    /// Wired by the Deck controller: (fromIndex 0-based, toOrdinal 1-based) when a row is dropped.
+    var onReorder: ((Int, Int) -> Void)?
 
-    /// - Parameter belowDeckFrame: the Deck panel's frame (screen coords), so the list can be
-    ///   anchored just beneath it with a small gap — it is a reference to glance at, not a
-    ///   modal, so it must not sit on top of the Deck.
+    /// - Parameter belowDeckFrame: the Deck panel's frame (screen coords), so the list card can
+    ///   be anchored just beneath it with a small gap — a surface to glance at *and* drag on, so
+    ///   it must not sit on top of the Deck.
     func present(using controller: WMController, belowDeckFrame: CGRect? = nil) {
         guard let engine = controller.niriEngine,
               let workspaceId = controller.interactionWorkspace()?.id,
@@ -314,23 +474,22 @@ final class WindowListOverlayController {
             return
         }
 
-        var managed: [WindowBadge] = []
+        // One draggable row per column — the numbered ⌘D → n targets, in tiling order. (Windows
+        // stacked within a column share the column's slot, so the column is the unit you reorder.)
+        var columns: [WindowBadge] = []
         for (index, column) in engine.columns(in: workspaceId).prefix(10).enumerated() {
+            guard let node = column.windowNodes.first,
+                  let entry = controller.workspaceManager.entry(for: node.token)
+            else { continue }
             let columnNumber = index + 1
-            // Every window in the column is listed. The first carries the column ordinal
-            // (the ⌘D → n target); windows stacked below it show icon + size but no number.
-            for (windowIndex, node) in column.windowNodes.enumerated() {
-                guard let entry = controller.workspaceManager.entry(for: node.token) else { continue }
-                let number = windowIndex == 0 ? (columnNumber == 10 ? "0" : String(columnNumber)) : ""
-                managed.append(WindowBadgeBuilder.make(
-                    number: number,
-                    isFloating: false,
-                    token: node.token,
-                    entry: entry,
-                    frame: try? AXWindowService.frame(entry.axRef),
-                    columnIndex: index
-                ))
-            }
+            columns.append(WindowBadgeBuilder.make(
+                number: columnNumber == 10 ? "0" : String(columnNumber),
+                isFloating: false,
+                token: node.token,
+                entry: entry,
+                frame: try? AXWindowService.frame(entry.axRef),
+                columnIndex: index
+            ))
         }
 
         var floating: [WindowBadge] = []
@@ -345,27 +504,58 @@ final class WindowListOverlayController {
             ))
         }
 
-        // Anchor just below the Deck: convert the Deck's bottom edge (screen, bottom-origin)
-        // to panel-local (top-origin) y and add a gap. Falls back to a bit below center.
-        let gap: CGFloat = 16
-        let topInset: CGFloat = if let belowDeckFrame {
-            (screen.frame.maxY - belowDeckFrame.minY) + gap
-        } else {
-            screen.frame.height * 0.55
-        }
-
-        let panel = panel ?? NehirBadgePanel.make()
-        self.panel = panel
-        panel.setFrame(screen.frame, display: true)
-        panel.contentView = NSHostingView(
-            rootView: WindowListView(managed: managed, floating: floating, topInset: topInset)
+        let rootView = ReorderableWindowListView(
+            columns: columns,
+            floating: floating,
+            onReorder: { [weak self] from, to in self?.onReorder?(from, to) }
         )
-        panel.orderFrontRegardless()
+
+        // Reuse the existing hosting view — updating its data in place — so a refresh after a
+        // drag never tears down the gesture machinery. Only its `rootView` and frame change.
+        let card = card ?? NSHostingView(rootView: rootView)
+        card.rootView = rootView
+        card.layoutSubtreeIfNeeded()
+        var size = card.fittingSize
+        size.width = max(size.width, 260)
+        size.height = max(size.height, 80)
+
+        // Anchor the card just below the Deck (screen coords, bottom-origin), horizontally
+        // centered; fall back to a touch below screen center when the Deck frame is unknown.
+        let gap: CGFloat = 16
+        let originX = screen.frame.midX - size.width / 2
+        let originY: CGFloat = if let belowDeckFrame {
+            belowDeckFrame.minY - gap - size.height
+        } else {
+            screen.frame.midY - size.height / 2
+        }
+        card.frame = NSRect(
+            x: originX - screen.frame.minX,
+            y: originY - screen.frame.minY,
+            width: size.width,
+            height: size.height
+        )
+
+        if self.card == nil {
+            // First presentation: build the click-through container + panel once. The container
+            // fills the screen but only the card is hit-testable, so clicks elsewhere still reach
+            // the windows underneath.
+            self.card = card
+            let container = ReorderPassthroughView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            container.autoresizingMask = [.width, .height]
+            container.addSubview(card)
+            let panel = NehirReorderPanel.make()
+            self.panel = panel
+            panel.setFrame(screen.frame, display: true)
+            panel.contentView = container
+        }
+        panel?.orderFrontRegardless()
     }
 
     func hide() {
         panel?.orderOut(nil)
         panel?.contentView = nil
+        panel = nil
+        card = nil
     }
 }
 
@@ -389,6 +579,41 @@ enum NehirBadgePanel {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .stationary]
+        return panel
+    }
+}
+
+/// A screen-filling content view that is transparent to the mouse everywhere except its
+/// subviews — so the reorder card can accept drags while every click outside it passes through
+/// to the windows below. (`super.hitTest` returns the container itself for a point that misses
+/// every subview; we translate that to `nil` = "not me, keep looking underneath".)
+private final class ReorderPassthroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+}
+
+/// Like `NehirBadgePanel`, but mouse-interactive: the reorder list needs drag events. Still
+/// borderless and non-activating, and — being a borderless panel — it never becomes key, so the
+/// bordered window keeps its focus (and its border) while you drag rows around.
+enum NehirReorderPanel {
+    @MainActor
+    static func make() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .floating
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .stationary]
         return panel
     }

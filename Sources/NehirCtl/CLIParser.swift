@@ -363,6 +363,7 @@ enum CLIParser {
         var minWidth: Double?
         var minHeight: Double?
         var sticky: Bool?
+        var soloColumn: Bool?
         var seenFlags: Set<String> = []
         var index = 0
 
@@ -408,6 +409,8 @@ enum CLIParser {
                 minHeight = try parsePositiveDouble(value)
             case "--sticky":
                 sticky = try parseBool(value)
+            case "--solo-column":
+                soloColumn = try parseBool(value)
             default:
                 throw CLIParseError.usage(usageText)
             }
@@ -431,7 +434,8 @@ enum CLIParser {
             assignToWorkspace: assignToWorkspace,
             minWidth: minWidth,
             minHeight: minHeight,
-            sticky: sticky
+            sticky: sticky,
+            soloColumn: soloColumn
         )
 
         guard IPCRuleValidator.validate(definition).isValid else {

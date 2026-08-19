@@ -29,6 +29,13 @@ struct PersistedNiriPlacement: Codable, Equatable, Sendable {
     let tileIndex: Int
     let column: PersistedNiriColumnState
     let window: PersistedNiriWindowState
+    /// The window-server-independent identity of the COLUMN this window belonged to when saved
+    /// (the NiriContainer's id). Windows the user stacked into one column share this value;
+    /// independent windows carry different values even when their positional `columnIndex`
+    /// collides across save snapshots. Grouping by this instead of the bare integer is what keeps
+    /// two distinct same-app windows (e.g. Screen Sharing sessions) in their own lanes. Optional:
+    /// placements saved before this field existed fall back to `columnIndex` grouping at restore.
+    let columnGroupId: UUID?
 }
 
 struct PersistedRestoreIntent: Codable, Equatable, Sendable {

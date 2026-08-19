@@ -99,6 +99,9 @@ final class ControlDeckController: NSObject {
             guard let controller = self?.wmController else { return [] }
             return DeckPickSource.items(for: mode, using: controller)
         }
+        windowList.onReorder = { [weak self] fromIndex, toOrdinal in
+            self?.reorderColumn(fromIndex: fromIndex, toOrdinal: toOrdinal)
+        }
         installConfigureBindings()
     }
 
@@ -195,6 +198,40 @@ final class ControlDeckController: NSObject {
               let monitor = controller.workspaceManager.monitor(for: workspaceId)
         else { return }
         _ = controller.workspaceManager.setInteractionMonitor(monitor.id)
+    }
+
+    // MARK: - Drag-to-reorder (OSD window list)
+
+    /// Move the column the user dragged (identified by its current 0-based index) to a new
+    /// 1-based slot, then re-render the OSD. The ⌘-digit move always targets the *bordered*
+    /// window; a drag targets the *grabbed* column instead — so we point the layout selection at
+    /// that column ourselves and perform the move directly, bypassing the border-window re-sync
+    /// that `model.perform` applies to `.moveColumnToIndex`.
+    private func reorderColumn(fromIndex: Int, toOrdinal: Int) {
+        // A drag targets the GRABBED column, not the bordered window, so point the layout
+        // selection at that column and perform the move directly (bypassing the border-window
+        // re-sync that model.perform applies to .moveColumnToIndex), then relabel the on-window
+        // number badges to match.
+        guard let controller = wmController,
+              let workspaceId = controller.interactionWorkspace()?.id,
+              let engine = controller.niriEngine
+        else { return }
+        let columns = engine.columns(in: workspaceId)
+        guard columns.indices.contains(fromIndex),
+              let node = columns[fromIndex].windowNodes.first
+        else { return }
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        engine.activateWindow(node.id)
+        state.selectedNodeId = node.id
+        _ = controller.workspaceManager.applySessionPatch(
+            WorkspaceSessionPatch(workspaceId: workspaceId, viewportState: state, rememberedFocusToken: node.token)
+        )
+        alignInteractionMonitor()
+        _ = controller.commandHandler.performCommand(.moveColumnToIndex(toOrdinal))
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let controller = self.wmController else { return }
+            self.columnBadges.present(using: controller)
+        }
     }
 
     // MARK: - Float toggle (float + fit to display, or re-tile)
@@ -322,10 +359,14 @@ final class ControlDeckController: NSObject {
         model.reset()
         OwnedWindowRegistry.shared.register(panel)
         resizeAndCenter()
-        presentColumnBadges()
         NehirShell.offEdgeIndicators?.setDeckOpen(true)
         // Surface without activating the app, so the underlying window keeps focus.
         panel.orderFrontRegardless()
+        // Present the overlays AFTER fronting the Deck, so the interactive window-list card
+        // ends up front-most. Presenting it before (with the Deck fronted last) leaves the list
+        // behind the Deck in z-order, and the background, non-activating list panel then doesn't
+        // receive drag events — it shows but can't be dragged until an `i`-toggle re-fronts it.
+        presentColumnBadges()
         installKeyTap()
     }
 
@@ -333,6 +374,7 @@ final class ControlDeckController: NSObject {
         removeKeyTap()
         columnBadges.hide()
         windowList.hide()
+        NehirShellHook.suppressRevealRaise = false
         NehirShell.offEdgeIndicators?.setDeckOpen(false)
         OwnedWindowRegistry.shared.unregister(panel)
         panel.orderOut(nil)
@@ -348,6 +390,7 @@ final class ControlDeckController: NSObject {
         guard let wmController else {
             columnBadges.hide()
             windowList.hide()
+            NehirShellHook.suppressRevealRaise = false
             return
         }
         // Feature 1: on-window decorations always show with the Deck.
@@ -358,6 +401,10 @@ final class ControlDeckController: NSObject {
         } else {
             windowList.hide()
         }
+        // While the interactive list is up, tell the layout refresh not to raise a window it moves
+        // to absolute front — that raise would land over the non-activating drag panel and steal
+        // its mouse input (leaving reorder dead until the panel is re-presented).
+        NehirShellHook.suppressRevealRaise = NehirShell.showFullWindowList
     }
 
     /// F1/`i` toggles the persisted "show full window list" preference and re-evaluates the

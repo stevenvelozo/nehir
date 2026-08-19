@@ -251,8 +251,10 @@ final class OffEdgeIndicatorController {
         let panel = panels[monitor.id] ?? NehirBadgePanel.make()
         panels[monitor.id] = panel
         // Accept clicks only while the Deck is open (for iPad-remote taps); otherwise stay
-        // click-through so the persistent indicators never intercept normal interaction.
-        panel.ignoresMouseEvents = !deckOpen
+        // click-through so the persistent indicators never intercept normal interaction. Also stay
+        // click-through while the interactive reorder list is up: this full-screen panel re-fronts
+        // on every layout change and would otherwise sit over the drag list and swallow the drag.
+        panel.ignoresMouseEvents = !deckOpen || NehirShell.showFullWindowList
         panel.setFrame(monitor.frame, display: true)
         if panel.contentView == nil {
             panel.contentView = NSHostingView(rootView: OffEdgeIndicatorView(model: model))

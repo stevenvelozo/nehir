@@ -35,7 +35,8 @@ extension NiriLayoutEngine {
                         height: window.height,
                         savedHeight: window.savedHeight,
                         windowWidth: window.windowWidth
-                    )
+                    ),
+                    columnGroupId: column.id.uuid
                 )
             }
         }
@@ -47,6 +48,7 @@ extension NiriLayoutEngine {
     func restoreInitialPlacements(
         _ placements: [WindowToken: PersistedNiriPlacement],
         matching tokens: [WindowToken],
+        soloColumnTokens: Set<WindowToken> = [],
         in workspaceId: WorkspaceDescriptor.ID
     ) -> Bool {
         guard !placements.isEmpty, !tokens.isEmpty else { return false }
@@ -74,16 +76,23 @@ extension NiriLayoutEngine {
             tokenOrder[token] = index
         }
 
-        var placementsByColumn: [Int: [(token: WindowToken, placement: PersistedNiriPlacement)]] = [:]
-        placementsByColumn.reserveCapacity(placedTokens.count)
-
+        // Group by COLUMN IDENTITY (the persisted container id) rather than the bare positional
+        // columnIndex. Two windows that were independent columns carry different group ids and are
+        // NEVER merged — even when their columnIndex collides across save snapshots (the
+        // multi-window stacking bug: two Screen Sharing windows crushed into one half-height
+        // column). Windows the user deliberately stacked into one column share a group id and stay
+        // together. Placements saved before group ids existed have a nil id and fall back to
+        // columnIndex grouping, so an already-stacked pair stays put until manually un-stacked.
+        var groups: [String: [(token: WindowToken, placement: PersistedNiriPlacement)]] = [:]
+        var groupColumnIndex: [String: Int] = [:]
         for token in tokens {
             guard placedTokens.contains(token), let placement = placements[token] else { continue }
-
-            placementsByColumn[placement.columnIndex, default: []].append((token, placement))
+            let key = placement.columnGroupId?.uuidString ?? "idx:\(placement.columnIndex)"
+            groups[key, default: []].append((token, placement))
+            groupColumnIndex[key] = min(groupColumnIndex[key] ?? Int.max, placement.columnIndex)
         }
 
-        guard !placementsByColumn.isEmpty else { return false }
+        guard !groups.isEmpty else { return false }
 
         var reusableNodes: [WindowToken: NiriWindow] = [:]
         reusableNodes.reserveCapacity(currentTokens.count)
@@ -96,28 +105,55 @@ extension NiriLayoutEngine {
         }
         removeEmptyColumnsIfWorkspaceEmpty(in: root)
 
-        for columnIndex in placementsByColumn.keys.sorted() {
-            let groupedPlacements = placementsByColumn[columnIndex, default: []].sorted { lhs, rhs in
+        // Left-to-right order: by each group's original columnIndex, then a stable tiebreak (its
+        // earliest window) so two independent columns that collided on one index stay adjacent.
+        let orderedGroupKeys = groups.keys.sorted { lhs, rhs in
+            let li = groupColumnIndex[lhs] ?? Int.max
+            let ri = groupColumnIndex[rhs] ?? Int.max
+            if li != ri { return li < ri }
+            let lt = groups[lhs]?.compactMap { tokenOrder[$0.token] }.min() ?? Int.max
+            let rt = groups[rhs]?.compactMap { tokenOrder[$0.token] }.min() ?? Int.max
+            return lt < rt
+        }
+
+        // Within each group, honor the per-app soloColumn escape hatch: a solo-column window is
+        // never stacked with siblings even if they somehow share a group id.
+        for groupKey in orderedGroupKeys {
+            let groupedPlacements = groups[groupKey, default: []].sorted { lhs, rhs in
                 if lhs.placement.tileIndex != rhs.placement.tileIndex {
                     return lhs.placement.tileIndex < rhs.placement.tileIndex
                 }
                 return (tokenOrder[lhs.token] ?? Int.max) < (tokenOrder[rhs.token] ?? Int.max)
             }
-            guard let seed = groupedPlacements.first else { continue }
+            guard !groupedPlacements.isEmpty else { continue }
 
-            let column = NiriContainer()
-            applyPersistedColumnState(seed.placement.column, to: column)
-            root.appendChild(column)
-
-            for groupedPlacement in groupedPlacements {
-                let window = reusableNodes[groupedPlacement.token] ?? NiriWindow(token: groupedPlacement.token)
-                applyPersistedWindowState(groupedPlacement.placement.window, to: window)
-                column.appendChild(window)
-                tokenToNode[groupedPlacement.token] = window
+            var pending: [(token: WindowToken, placement: PersistedNiriPlacement)] = []
+            func flushPending() {
+                guard let seed = pending.first else { return }
+                let column = NiriContainer()
+                applyPersistedColumnState(seed.placement.column, to: column)
+                root.appendChild(column)
+                for groupedPlacement in pending {
+                    let window = reusableNodes[groupedPlacement.token] ?? NiriWindow(token: groupedPlacement.token)
+                    applyPersistedWindowState(groupedPlacement.placement.window, to: window)
+                    column.appendChild(window)
+                    tokenToNode[groupedPlacement.token] = window
+                }
+                column.setActiveTileIdx(min(seed.placement.column.activeTileIndex, pending.count - 1))
+                updateTabbedColumnVisibility(column: column)
+                pending.removeAll(keepingCapacity: true)
             }
 
-            column.setActiveTileIdx(seed.placement.column.activeTileIndex)
-            updateTabbedColumnVisibility(column: column)
+            for groupedPlacement in groupedPlacements {
+                if soloColumnTokens.contains(groupedPlacement.token) {
+                    flushPending() // close any accumulated non-solo column first
+                    pending = [groupedPlacement]
+                    flushPending() // the solo window is its own column
+                } else {
+                    pending.append(groupedPlacement)
+                }
+            }
+            flushPending()
         }
 
         return true

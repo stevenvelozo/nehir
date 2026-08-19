@@ -908,6 +908,11 @@ public enum IPCAutomationManifest {
             flag: "--sticky",
             summary: "Set the sticky visibility effect for matching windows.",
             valuePlaceholder: "<true|false>"
+        ),
+        .init(
+            flag: "--solo-column",
+            summary: "Never stack matching windows into a shared column; each keeps its own lane.",
+            valuePlaceholder: "<true|false>"
         )
     ]
 

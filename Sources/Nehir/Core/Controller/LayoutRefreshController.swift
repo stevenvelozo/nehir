@@ -4727,7 +4727,9 @@ final class LayoutDiffExecutor {
                 visibleJobs.append((entry.handle.pid, entry.windowId))
             }
 
-            if !visibleJobs.isEmpty {
+            // Skip the absolute-front reveal-raise while the Deck's interactive reorder list is
+            // up: raising a moved window over that non-activating overlay steals its mouse input.
+            if !visibleJobs.isEmpty, !NehirShellHook.suppressRevealRaise {
                 for (_, windowId) in visibleJobs {
                     if let skyLightWindowId = UInt32(exactly: windowId) {
                         SkyLight.shared.orderWindow(skyLightWindowId, relativeTo: 0, order: .above)

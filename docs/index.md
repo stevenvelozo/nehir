@@ -11,6 +11,7 @@ title: Nehir Documentation
 - [Settings Migrations](SETTINGS_MIGRATIONS.md) — gradual config migration policy and registry
 - [IPC & CLI Reference](IPC-CLI.md) — `nehirctl` commands and socket protocol
 - [Offscreen Window Clamp Fix](offscreen-clamp-fix.md) — macOS offscreen-parking limitations and the failure log of attempted hide strategies
+- [Interactive OSD Overlays](osd-interactive-overlays.md) — building clickable/draggable Deck primitives: agent-app constraints, the overlay-covering gotcha, and working AppKit patterns
 - [Recipes](recipes/README.md) — companion setup snippets
 - [Contributing](CONTRIBUTING.md) — how to contribute
 - [Testing](TESTING.md) — running the suite, test placement policy, and truthfulness rules for test seams

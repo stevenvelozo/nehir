@@ -63,6 +63,13 @@ enum NehirShellHook {
     /// fork config. Off by default = upstream hide-on-neighbor behavior.
     nonisolated(unsafe) static var allowCrossMonitorOverflow = false
 
+    /// When true, the layout refresh must NOT raise a revealed/moved window to absolute front
+    /// (the SkyLight `orderWindow` reveal-raise). Set by the shell while the Deck's interactive
+    /// reorder list is on screen: otherwise a window the reorder moves is raised OVER that
+    /// non-activating overlay and steals its mouse input — which macOS won't hand back without a
+    /// fresh user key event. Off by default = normal reveal-to-front behavior.
+    nonisolated(unsafe) static var suppressRevealRaise = false
+
     /// Called after a workspace's layout frames are applied, so the shell layer can
     /// re-assert Blades' ordinal z-order (columns stacked front-to-back by index). A
     /// no-op in the other layout families.
