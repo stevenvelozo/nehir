@@ -16,6 +16,10 @@ enum NehirLayoutMode: String, Sendable, CaseIterable {
     case blades
     /// Everything floats.
     case free
+    /// Scrolling columns like `river`, but every column is forced to full working width — a
+    /// full-bleed "gallery" you scroll one window at a time. A window that can't stretch to full
+    /// width (a max-width constraint) centers in the region with the margin left around it.
+    case gallery
 }
 
 /// Fork-local extension seam for the NehirShell layer.

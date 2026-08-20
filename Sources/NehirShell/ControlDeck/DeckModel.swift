@@ -337,6 +337,7 @@ final class DeckModel {
         case .character("r"): setLayoutEngine(.river)
         case .character("b"): setLayoutEngine(.blades)
         case .character("f"): setLayoutEngine(.free)
+        case .character("g"): setLayoutEngine(.gallery)
         default: return false
         }
         return true

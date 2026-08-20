@@ -595,7 +595,10 @@ class NiriContainer: NiriNode {
         let bounds = widthBounds()
         cachedWidth = resolveSpan(
             spec: width,
-            isFull: isFullWidth,
+            // Gallery forces every column to full working width (clamped to the window's max, so a
+            // window that can't stretch just centers with margin) WITHOUT touching the per-column
+            // `isFullWidth` flag — so switching back to River restores each column's own width.
+            isFull: isFullWidth || NehirShellHook.layoutMode == .gallery,
             availableSpace: workingAreaWidth,
             gaps: gaps,
             minConstraint: bounds.min,

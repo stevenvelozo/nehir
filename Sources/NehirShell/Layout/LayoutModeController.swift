@@ -62,13 +62,25 @@ final class LayoutModeController {
         NehirShellHook.layoutMode = newMode
         UserDefaults.standard.set(newMode.rawValue, forKey: Self.defaultsKey)
 
+        // Gallery flips every column to/from forced full width — that both re-resolves cached
+        // widths AND leaves the viewport scroll anchor stale, so a plain relayout would leave the
+        // (now full-bleed) windows straddling the old scroll position. `reflowForWorkingWidthChange`
+        // re-resolves the widths and re-centers the active column (the same path the zoom uses).
+        let galleryTransition = newMode == .gallery || previous == .gallery
+
         if newMode == .free, previous != .free {
             enterFree()
         } else if previous == .free, newMode != .free {
             retileAllFloating()
-            controller.layoutRefreshController.requestRefresh(reason: .workspaceLayoutToggled)
+            if galleryTransition {
+                controller.niriLayoutHandler.reflowForWorkingWidthChange()
+            } else {
+                controller.layoutRefreshController.requestRefresh(reason: .workspaceLayoutToggled)
+            }
+        } else if galleryTransition {
+            controller.niriLayoutHandler.reflowForWorkingWidthChange()
         } else {
-            // River↔Blades: just reposition.
+            // River ↔ Blades: just reposition.
             controller.layoutRefreshController.requestRefresh(reason: .workspaceLayoutToggled)
         }
     }

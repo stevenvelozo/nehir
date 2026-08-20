@@ -6,9 +6,10 @@
 @testable import Nehir
 import SwiftUI
 
-/// The layout-engine pane: pick the global layout family. River is the scrolling column
-/// layout; Blades overlaps those same columns distributed edge-to-edge; Free floats every
-/// window. The active family is checked; selecting one applies it live (Esc backs out).
+/// The layout-engine pane: pick the global layout family. River is the scrolling column layout;
+/// Blades overlaps those same columns distributed edge-to-edge; Gallery is River with every column
+/// forced to full width (one window at a time); Free floats every window. The active family is
+/// checked; selecting one applies it live (Esc backs out).
 struct DeckLayoutView: View {
     let model: DeckModel
 
@@ -29,7 +30,14 @@ struct DeckLayoutView: View {
             subtitle: "Overlapping, edge to edge",
             symbol: "rectangle.stack"
         ),
-        Option(key: "F", mode: .free, title: "Free", subtitle: "Everything floats", symbol: "macwindow.on.rectangle")
+        Option(key: "F", mode: .free, title: "Free", subtitle: "Everything floats", symbol: "macwindow.on.rectangle"),
+        Option(
+            key: "G",
+            mode: .gallery,
+            title: "Gallery",
+            subtitle: "Full-bleed, one window at a time",
+            symbol: "rectangle.portrait.on.rectangle.portrait"
+        )
     ]
 
     var body: some View {
