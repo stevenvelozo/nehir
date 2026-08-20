@@ -515,6 +515,25 @@ final class WMController {
         layoutRefreshController.requestRefresh(reason: .gapsChanged)
     }
 
+    /// Clear the ephemeral resize floors for every tiled window in the interaction workspace, so an
+    /// explicit resize (a width/height command, or the abstract-viewport zoom) RE-TESTS the desired
+    /// size instead of being clamped by a stale floor left from an earlier refusal. This is what
+    /// makes the resize floor "react per-layout" rather than persisting like the old learned minimum.
+    func clearResizeFloorsForResizeIntent() {
+        guard let wsId = interactionWorkspace()?.id else { return }
+        for entry in workspaceManager.tiledEntries(in: wsId)
+            where workspaceManager.observedResizeFloor(for: entry.token) != nil
+        {
+            workspaceManager.setObservedResizeFloor(nil, for: entry.token)
+            // Also undo the inflated constraint the floor pushed to the engine, so the command
+            // re-tests the desired size; the next layout re-derives from the cached AX constraints.
+            if let engine = niriEngine {
+                let constraints = workspaceManager.cachedConstraints(for: entry.token) ?? .unconstrained
+                engine.updateWindowConstraints(for: entry.token, constraints: constraints)
+            }
+        }
+    }
+
     func resolvedGapSettings(for monitor: Monitor) -> ResolvedGapSettings {
         settings.resolvedGapSettings(for: monitor, connectedMonitors: workspaceManager.monitors)
     }
@@ -1017,12 +1036,21 @@ final class WMController {
         outerGaps: LayoutGaps.OuterGaps? = nil
     ) -> CGRect {
         let outer = outerGaps ?? workspaceManager.outerGaps
+        // >>> NEHIR-SHELL SEAM — abstract-viewport horizontal zoom. The shell reserves a fraction of
+        // the monitor width as a side gutter (leading/trailing, possibly asymmetric); folding it into
+        // the struts here shrinks-and-repositions the WHOLE layout region in one place, so column
+        // sizing, centering, snapping, and placement all inherit it. Zero fractions = the region
+        // fills the monitor (upstream behavior). Each side is clamped so the region can't collapse;
+        // the `NiriLayout` park-gate un-clip uses the same clamp so the two agree.
+        let zoomLeading = max(0, min(0.45, NehirShellHook.viewportInsetLeadingFraction))
+        let zoomTrailing = max(0, min(0.45, NehirShellHook.viewportInsetTrailingFraction))
         let struts = Struts(
-            left: outer.left,
-            right: outer.right,
+            left: outer.left + frame.width * zoomLeading,
+            right: outer.right + frame.width * zoomTrailing,
             top: outer.top + reservedTopInset,
             bottom: outer.bottom
         )
+        // <<< NEHIR-SHELL SEAM
         return computeWorkingArea(
             parentArea: frame,
             scale: scale,

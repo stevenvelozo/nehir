@@ -90,6 +90,7 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case debugDumpRuntimeState
     case debugResetRuntimeState
     case debugRestartClearingRuntimeState
+    case debugResetFocusedWindowRuntime
     case debugToggleTraceCapture
 
     case toggleWorkspaceBarVisibility

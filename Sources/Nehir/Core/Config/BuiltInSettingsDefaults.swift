@@ -48,7 +48,7 @@ enum BuiltInSettingsDefaults {
     ]
 
     // No bundled size rules: minimum window dimensions are now inferred at runtime
-    // by `LayoutRefreshController.inferredResizeMinimumSize` (see `LayoutRefreshController.swift`),
+    // by `LayoutRefreshController.observedResizeFloor` (see `LayoutRefreshController.swift`),
     // which learns each window's actual resize floor when the app refuses a size write.
     // Users can still add their own rules via Settings → App Rules or `apprules.d/`.
     static let appRules: [AppRule] = []

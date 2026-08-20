@@ -82,6 +82,7 @@ enum DeckModeID: Equatable {
     case configureEdit
     case display
     case layout
+    case internals
 }
 
 /// The window chosen in the Configure flow, carried into the edit screen.

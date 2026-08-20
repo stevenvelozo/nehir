@@ -162,6 +162,12 @@ extension NiriLayoutEngine {
         let workingFrame = workingArea?.workingFrame ?? monitorFrame
         let viewFrame = workingArea?.viewFrame ?? screenFrame ?? monitorFrame
         let effectiveScale = workingArea?.scale ?? scale
+        // >>> NEHIR-SHELL SEAM — abstract-viewport zoom: placement/sizing use the inset
+        // `workingFrame`, but the visibility cull must test against the PHYSICAL region (the inset
+        // region outset by the reserved gutters) so a neighbor sitting in a gutter peeks instead of
+        // being parked. Zero inset → equals `workingFrame` → upstream culling unchanged.
+        let parkViewportFrame = abstractViewportParkFrame(workingFrame: workingFrame, orientation: orientation)
+        // <<< NEHIR-SHELL SEAM
 
         let primaryGap: CGFloat
         let secondaryGap: CGFloat
@@ -289,6 +295,7 @@ extension NiriLayoutEngine {
                 switch containerVisibilityState(
                     for: visibilityRect,
                     viewportFrame: workingFrame,
+                    parkViewportFrame: parkViewportFrame,
                     fallback: idx == 0 ? .minimum : .maximum,
                     orientation: orientation,
                     hiddenPlacementMonitor: hiddenPlacementMonitor,
@@ -382,6 +389,7 @@ extension NiriLayoutEngine {
     private func containerVisibilityState(
         for renderedRect: CGRect,
         viewportFrame: CGRect,
+        parkViewportFrame: CGRect,
         fallback: AxisHideEdge,
         orientation: Monitor.Orientation,
         hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
@@ -393,9 +401,11 @@ extension NiriLayoutEngine {
             fallback: fallback,
             orientation: orientation
         )
+        // Abstract-viewport (fork): the park test uses the outset physical frame so gutter-peeking
+        // neighbors survive; hidden-edge and cross-monitor overflow keep the inset `viewportFrame`.
         guard containerIntersectsViewport(
             renderedRect,
-            viewportFrame: viewportFrame,
+            viewportFrame: parkViewportFrame,
             orientation: orientation
         ) else {
             return .hidden(defaultHideEdge)
@@ -432,6 +442,30 @@ extension NiriLayoutEngine {
             return containerRect.maxY > viewportFrame.minY + preParkMargin
                 && containerRect.minY < viewportFrame.maxY - preParkMargin
         }
+    }
+
+    /// Abstract-viewport (fork): the physical viewport rect the visibility cull tests against — the
+    /// inset `workingFrame` outset by the reserved side gutters, reconstructed from the inset width
+    /// and the reserved fractions (`gutter = width * f / (1 - leading - trailing)`). Returns
+    /// `workingFrame` unchanged when no zoom is active or for vertical stacks (the zoom is
+    /// horizontal-only). See `NehirShellHook.viewportInset*`.
+    private func abstractViewportParkFrame(
+        workingFrame: CGRect,
+        orientation: Monitor.Orientation
+    ) -> CGRect {
+        guard orientation == .horizontal else { return workingFrame }
+        let leading = max(0, min(0.45, NehirShellHook.viewportInsetLeadingFraction))
+        let trailing = max(0, min(0.45, NehirShellHook.viewportInsetTrailingFraction))
+        let denominator = 1 - leading - trailing
+        guard leading > 0 || trailing > 0, denominator > 0 else { return workingFrame }
+        let gutterLeading = workingFrame.width * leading / denominator
+        let gutterTrailing = workingFrame.width * trailing / denominator
+        return CGRect(
+            x: workingFrame.minX - gutterLeading,
+            y: workingFrame.minY,
+            width: workingFrame.width + gutterLeading + gutterTrailing,
+            height: workingFrame.height
+        )
     }
 
     private func overflowEdgeIntersectingNeighboringMonitor(

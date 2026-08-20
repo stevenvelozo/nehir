@@ -465,6 +465,10 @@ final class WindowListOverlayController {
     /// - Parameter belowDeckFrame: the Deck panel's frame (screen coords), so the list card can
     ///   be anchored just beneath it with a small gap — a surface to glance at *and* drag on, so
     ///   it must not sit on top of the Deck.
+    /// Size of the most-recently-presented card. The list's height depends on the window set (not
+    /// the Deck pane), so the Deck reserves stack space from this even across pane changes.
+    private(set) var lastCardSize: CGSize?
+
     func present(using controller: WMController, belowDeckFrame: CGRect? = nil) {
         guard let engine = controller.niriEngine,
               let workspaceId = controller.interactionWorkspace()?.id,
@@ -518,6 +522,7 @@ final class WindowListOverlayController {
         var size = card.fittingSize
         size.width = max(size.width, 260)
         size.height = max(size.height, 80)
+        lastCardSize = size
 
         // Anchor the card just below the Deck (screen coords, bottom-origin), horizontally
         // centered; fall back to a touch below screen center when the Deck frame is unknown.

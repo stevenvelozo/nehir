@@ -80,6 +80,21 @@ final class DeckModel {
     var readCrossMonitorOverflow: () -> Bool = { false }
     var applyCrossMonitorOverflow: (Bool) -> Void = { _ in }
 
+    /// Abstract-viewport zoom (Display pane): cycles a symmetric horizontal inset so the focused
+    /// column stream lays out into a narrower region and the neighbor columns' edges peek in the
+    /// gutters. Source of truth is the shell's `ViewportInsetController`; read/cycled via injected
+    /// closures so the pane can show and change it live.
+    private(set) var viewportZoomLabel = "Off"
+    var readViewportZoomLabel: () -> String = { "Off" }
+    var cycleViewportZoom: () -> Void = {}
+
+    /// Advanced Internals pane: per-window engine runtime state and a per-row reset, supplied by the
+    /// shell via injected closures. `internalsRows` is rebuilt each time the pane opens (and after a
+    /// reset) so an anomaly disappears from the list the moment it's cleared.
+    private(set) var internalsRows: [DeckInternalsRow] = []
+    var readInternalsRows: () -> [DeckInternalsRow] = { [] }
+    var resetInternalsWindow: (Int) -> Void = { _ in }
+
     /// The active global layout family, shown/selected in the Layout-engine pane.
     private(set) var layoutMode: NehirLayoutMode = .river
     var readLayoutMode: () -> NehirLayoutMode = { .river }
@@ -243,6 +258,7 @@ final class DeckModel {
         case "g": toggleDockMagnification()
         case "s": cycleScrollBars()
         case "o": toggleCrossMonitorOverflow()
+        case "z": cycleViewportZoomAction()
         case "w": toggleWorkspaceBar()
         case "e": toggleWindowBorders()
         default: return false
@@ -280,6 +296,8 @@ final class DeckModel {
             return handleDisplay(key: key)
         case .layout:
             return handleLayout(key: key)
+        case .internals:
+            return handleInternals(key: key)
         case .columns,
              .floating:
             return handleListPick(key: key)
@@ -321,6 +339,26 @@ final class DeckModel {
         case .character("f"): setLayoutEngine(.free)
         default: return false
         }
+        return true
+    }
+
+    /// Advanced Internals pane: a digit (1–9, 0 = 10th) resets that window's tracked runtime state
+    /// and refreshes the list so the cleared anomaly disappears.
+    private func handleInternals(key: DeckKey) -> Bool {
+        guard case let .character(character) = key,
+              let digit = character.wholeNumberValue,
+              (0 ... 9).contains(digit)
+        else { return false }
+        return resetInternalsRowAction(digit == 0 ? 10 : digit)
+    }
+
+    /// Reset the tracked runtime state for the internals row with this 1-based number — used by both
+    /// the number key and a row click — then refresh the list so a cleared anomaly disappears at once.
+    @discardableResult
+    func resetInternalsRowAction(_ number: Int) -> Bool {
+        guard internalsRows.contains(where: { $0.number == number }) else { return false }
+        resetInternalsWindow(number)
+        internalsRows = readInternalsRows()
         return true
     }
 
@@ -388,8 +426,11 @@ final class DeckModel {
             workspaceBarEnabled = chrome.bar
             windowBordersEnabled = chrome.borders
             crossMonitorOverflowEnabled = readCrossMonitorOverflow()
+            viewportZoomLabel = readViewportZoomLabel()
         case .layout:
             layoutMode = readLayoutMode()
+        case .internals:
+            internalsRows = readInternalsRows()
         case .root:
             configureTargets = []
             configureTarget = nil
@@ -452,6 +493,13 @@ extension DeckModel {
     func toggleWindowBorders() {
         windowBordersEnabled.toggle()
         applyWindowBorders(windowBordersEnabled)
+    }
+
+    /// Cycle the abstract-viewport zoom to the next preset and refresh the pane's label. The shell
+    /// controller persists the value and relayouts, so the change is felt live.
+    func cycleViewportZoomAction() {
+        cycleViewportZoom()
+        viewportZoomLabel = readViewportZoomLabel()
     }
 
     func toggleCrossMonitorOverflow() {

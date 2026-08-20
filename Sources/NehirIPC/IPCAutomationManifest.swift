@@ -767,6 +767,11 @@ public enum IPCAutomationManifest {
             summary: "Clear runtime debugging state, relaunch the app, and exit the current process."
         ),
         command(
+            ["debug", "reset-focused-window-runtime"],
+            name: .debugResetFocusedWindowRuntime,
+            summary: "Clear the focused window's learned runtime state (inferred resize minimum, cached constraints) and relayout."
+        ),
+        command(
             ["debug", "trace", "toggle"],
             name: .debugToggleTraceCapture,
             summary: "Start runtime debugging trace capture, or stop and export the active capture."

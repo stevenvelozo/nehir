@@ -1879,6 +1879,44 @@ enum NiriWindowMoveResult {
         }
     }
 
+    /// Reflow the layout after the working width changed (used by the fork's abstract-viewport
+    /// zoom): resize every column against the new region and re-center the focused one, animating
+    /// the scroll so it lands smoothly instead of snapping through an intermediate frame. Two
+    /// things are needed beyond a plain relayout, because a relayout preserves the stale scroll
+    /// anchor by design ("never correct it back to centered. Only recenter on a real change."):
+    ///   • invalidate cached column spans so every workspace re-resolves widths against the new
+    ///     region (mirrors `WMController.setOuterGaps`, the sibling working-width change);
+    ///   • re-center the visible workspace's active column and drive its scroll animation (mirrors
+    ///     `cycleSize`: `.immediateRelayout` + `startScrollAnimationIfNeeded`). The re-center reads
+    ///     `cachedWidth`, so widths are re-resolved first.
+    func reflowForWorkingWidthChange() {
+        guard let controller else { return }
+        controller.niriEngine?.invalidateCachedLayoutSpans()
+        // A zoom is a fresh size intent for every column: re-test any refused shrink against the new
+        // region instead of clamping to a stale resize floor.
+        controller.clearResizeFloorsForResizeIntent()
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            for column in engine.columns(in: wsId) where column.cachedWidth <= 0 {
+                column.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
+            }
+            if let currentId = state.selectedNodeId,
+               let node = engine.findNode(by: currentId)
+            {
+                engine.ensureSelectionVisible(
+                    node: node,
+                    in: wsId,
+                    motion: motion,
+                    state: &state,
+                    workingFrame: workingFrame,
+                    gaps: gaps,
+                    revealTrigger: .explicitNavigation
+                )
+            }
+            controller.layoutRefreshController.requestRefresh(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
     func cycleSize(forward: Bool) {
         guard let controller else { return }
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in

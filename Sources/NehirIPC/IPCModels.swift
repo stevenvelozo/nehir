@@ -290,6 +290,7 @@ public enum IPCCommandName: String, Codable, CaseIterable, Equatable, Sendable {
     case debugDumpRuntimeState = "debug-dump-runtime-state"
     case debugResetRuntimeState = "debug-reset-runtime-state"
     case debugRestartClearingRuntimeState = "debug-restart-clearing-runtime-state"
+    case debugResetFocusedWindowRuntime = "debug-reset-focused-window-runtime"
     case debugToggleTraceCapture = "debug-toggle-trace-capture"
     case debugCaptureRecentTrace = "debug-capture-recent-trace"
     case toggleFocusFollowsMouse = "toggle-focus-follows-mouse"
@@ -428,6 +429,7 @@ public enum IPCCommandRequest: Equatable, Sendable {
     case debugDumpRuntimeState
     case debugResetRuntimeState
     case debugRestartClearingRuntimeState
+    case debugResetFocusedWindowRuntime
     case debugToggleTraceCapture(desiredState: IPCTraceDesiredState?)
     case debugCaptureRecentTrace
     case toggleFocusFollowsMouse
@@ -591,6 +593,8 @@ public enum IPCCommandRequest: Equatable, Sendable {
             .debugResetRuntimeState
         case .debugRestartClearingRuntimeState:
             .debugRestartClearingRuntimeState
+        case .debugResetFocusedWindowRuntime:
+            .debugResetFocusedWindowRuntime
         case .debugToggleTraceCapture:
             .debugToggleTraceCapture
         case .debugCaptureRecentTrace:
@@ -876,6 +880,9 @@ public enum IPCCommandRequest: Equatable, Sendable {
         case .debugRestartClearingRuntimeState:
             try requireNoArguments()
             self = .debugRestartClearingRuntimeState
+        case .debugResetFocusedWindowRuntime:
+            try requireNoArguments()
+            self = .debugResetFocusedWindowRuntime
         case .debugToggleTraceCapture:
             if argumentValues.isEmpty {
                 self = .debugToggleTraceCapture(desiredState: nil)
@@ -1121,6 +1128,8 @@ extension IPCCommandRequest: Codable {
             self = .debugResetRuntimeState
         case .debugRestartClearingRuntimeState:
             self = .debugRestartClearingRuntimeState
+        case .debugResetFocusedWindowRuntime:
+            self = .debugResetFocusedWindowRuntime
         case .debugToggleTraceCapture:
             if container.contains(.arguments) {
                 let arguments = try container.decode(IPCTraceDesiredStateArguments.self, forKey: .arguments)
@@ -1304,6 +1313,8 @@ extension IPCCommandRequest: Codable {
         case .debugResetRuntimeState:
             break
         case .debugRestartClearingRuntimeState:
+            break
+        case .debugResetFocusedWindowRuntime:
             break
         case let .debugToggleTraceCapture(desiredState):
             if let desiredState {

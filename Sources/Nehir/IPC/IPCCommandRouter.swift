@@ -201,6 +201,9 @@ final class IPCCommandRouter {
         case .debugRestartClearingRuntimeState:
             guard controller.settings.developerModeEnabled else { return .requiresDeveloperMode }
             return controller.commandHandler.performCommand(.debugRestartClearingRuntimeState)
+        case .debugResetFocusedWindowRuntime:
+            guard controller.settings.developerModeEnabled else { return .requiresDeveloperMode }
+            return controller.commandHandler.performCommand(.debugResetFocusedWindowRuntime)
         case .debugToggleTraceCapture(let desiredState):
             guard controller.settings.developerModeEnabled else { return .requiresDeveloperMode }
             return controller.diagnostics.toggleRuntimeTraceCapture(desiredState: desiredState)

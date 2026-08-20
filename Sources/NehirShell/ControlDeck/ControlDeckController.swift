@@ -44,6 +44,7 @@ final class ControlDeckController: NSObject {
     var onCheckForUpdates: (() -> Void)?
     /// Injected by the shell layer: the global layout-family controller.
     weak var layoutModeController: LayoutModeController?
+    weak var viewportInsetController: ViewportInsetController?
     /// The overlay feature, so registered pict extensions appear as Deck entries.
     weak var overlays: OverlayController?
 
@@ -94,7 +95,10 @@ final class ControlDeckController: NSObject {
         model.retileAll = { [weak self] in self?.retileAllFloating() }
         model.onClose = { [weak self] in self?.hide() }
         model.onShowOverlay = { [weak self] id in self?.overlays?.show(id) }
-        model.onModeChanged = { [weak self] in self?.resizeAndCenter() }
+        model.onModeChanged = { [weak self] in
+            self?.resizeAndCenter()
+            self?.repositionWindowList()
+        }
         model.requestPickItems = { [weak self] mode in
             guard let controller = self?.wmController else { return [] }
             return DeckPickSource.items(for: mode, using: controller)
@@ -417,6 +421,96 @@ final class ControlDeckController: NSObject {
 
     // MARK: - Layout
 
+    /// Re-anchor the drag-to-reorder list beneath the Deck's CURRENT frame. Called on pane changes
+    /// so the list follows the Deck as it grows/shrinks instead of being left overlapping it.
+    ///
+    /// Guarded on `panel.isVisible`: `onModeChanged` also fires from `model.reset()` inside `hide()`
+    /// (after the Deck is ordered out) and `show()` (before it's fronted). Without this guard the
+    /// hide-time reset would re-present the list right after `hide()` dismissed it, leaving the
+    /// list stuck on screen; show-time presentation is handled explicitly by `presentColumnBadges`.
+    private func repositionWindowList() {
+        guard panel.isVisible, let wmController, NehirShell.showFullWindowList else { return }
+        windowList.present(using: wmController, belowDeckFrame: panel.frame)
+    }
+
+    // MARK: - Advanced Internals pane
+
+    /// Snapshot the engine's per-window runtime state for the Advanced Internals pane, flagging the
+    /// suspicious learned/cached values worth clearing: an ephemeral resize floor, a fixed-size
+    /// verdict, or a manual single-window width override.
+    private func buildInternalsRows() -> [DeckInternalsRow] {
+        guard let controller = wmController,
+              let wsId = controller.interactionWorkspace()?.id,
+              let engine = controller.niriEngine
+        else { return [] }
+
+        var columnByToken: [WindowToken: NiriContainer] = [:]
+        for column in engine.columns(in: wsId) {
+            for window in column.windowNodes { columnByToken[window.token] = column }
+        }
+
+        var rows: [DeckInternalsRow] = []
+        for (index, entry) in controller.workspaceManager.tiledEntries(in: wsId).prefix(10).enumerated() {
+            let token = entry.token
+            var anomalies: [String] = []   // engine-inferred (potentially wrong) — orange
+            var notes: [String] = []       // user-intended (a hand-set width) — neutral
+            if let floor = controller.workspaceManager.observedResizeFloor(for: token) {
+                anomalies.append("floor \(Int(floor.width.rounded()))×\(Int(floor.height.rounded()))")
+            }
+            if let constraints = controller.workspaceManager.cachedConstraints(for: token, maxAge: .greatestFiniteMagnitude),
+               constraints.isFixed
+            {
+                anomalies.append("fixed")
+            }
+            if let column = columnByToken[token], column.hasManualSingleWindowWidthOverride {
+                if let width = column.loneWindowLayoutWidthOverride {
+                    notes.append("manual \(Int(width.rounded()))")
+                } else {
+                    notes.append("manual")
+                }
+            }
+            let appName = NSRunningApplication(processIdentifier: pid_t(token.pid))?.localizedName ?? "pid \(token.pid)"
+            // The window's real on-screen width — unaffected by a cached-span invalidation, so the
+            // detail never blanks after a reset (unlike the engine's `cachedWidth`).
+            let width = (try? AXWindowService.frame(entry.axRef))?.width ?? (columnByToken[token]?.cachedWidth ?? 0)
+            let detail = width > 0 ? "\(Int(width.rounded()))w" : ""
+            rows.append(DeckInternalsRow(
+                id: token.windowId,
+                number: index + 1,
+                appName: appName,
+                detail: detail,
+                anomalies: anomalies,
+                notes: notes
+            ))
+        }
+        return rows
+    }
+
+    /// Reset one row's window runtime state — the same per-window clear the `nehirctl` escape hatch
+    /// performs — then relayout so a freed window re-tests its size immediately.
+    private func resetInternalsRow(_ number: Int) {
+        guard let controller = wmController,
+              let wsId = controller.interactionWorkspace()?.id
+        else { return }
+        let entries = Array(controller.workspaceManager.tiledEntries(in: wsId).prefix(10))
+        let index = number - 1
+        guard entries.indices.contains(index) else { return }
+        let token = entries[index].token
+        controller.workspaceManager.resetWindowRuntimeState(for: token)
+        if let engine = controller.niriEngine {
+            engine.updateWindowConstraints(for: token, constraints: .unconstrained)
+            // Re-resolve ONLY this column's width (not every column) so a cleared resize floor lets
+            // the window shrink, while other rows keep their widths. A hand-set width (the neutral
+            // `manual` note) is user intent, not engine magic, so it is deliberately left untouched.
+            for column in engine.columns(in: wsId)
+                where column.windowNodes.contains(where: { $0.token == token })
+            {
+                column.cachedWidth = 0
+            }
+        }
+        controller.layoutRefreshController.requestRefresh(reason: .layoutCommand)
+    }
+
     private func resizeAndCenter() {
         hostingView.layoutSubtreeIfNeeded()
         var size = hostingView.fittingSize
@@ -426,10 +520,21 @@ final class ControlDeckController: NSObject {
         size.height = max(size.height, 120)
         let screen = screenForPresentation()
         let visible = screen.visibleFrame
-        let origin = NSPoint(
-            x: visible.midX - size.width / 2,
-            y: visible.midY - size.height / 2
-        )
+
+        // When the drag-to-reorder list is shown beneath the Deck, center the Deck + gap + list as a
+        // single stack (clamped to the screen) so a tall pane never grows down into the list and the
+        // whole thing stays visible. The list's height is stable across pane changes (it tracks the
+        // window set, not the pane), so its last presented size is an accurate reservation. Must use
+        // the same gap the list anchors with (ColumnBadgeOverlay's `present`).
+        let listGap: CGFloat = 16
+        let listHeight = NehirShell.showFullWindowList ? (windowList.lastCardSize?.height ?? 0) : 0
+        let stackHeight = listHeight > 0 ? size.height + listGap + listHeight : size.height
+        var deckTop = visible.midY + stackHeight / 2
+        deckTop = min(deckTop, visible.maxY)                        // keep the Deck's top on screen
+        if deckTop - stackHeight < visible.minY {                  // and lift the stack off the bottom
+            deckTop = min(visible.maxY, visible.minY + stackHeight)
+        }
+        let origin = NSPoint(x: visible.midX - size.width / 2, y: deckTop - size.height)
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
@@ -569,6 +674,10 @@ extension ControlDeckController {
             // Re-run the layout so the visibility culling picks up the change immediately.
             self?.wmController?.layoutRefreshController.requestRefresh(reason: .workspaceLayoutToggled)
         }
+        model.readViewportZoomLabel = { [weak self] in self?.viewportInsetController?.zoomLabel ?? "Off" }
+        model.cycleViewportZoom = { [weak self] in self?.viewportInsetController?.cycleZoom() }
+        model.readInternalsRows = { [weak self] in self?.buildInternalsRows() ?? [] }
+        model.resetInternalsWindow = { [weak self] number in self?.resetInternalsRow(number) }
     }
 
     /// Persist a configured window rule and apply it now: the forced width lands via the

@@ -880,6 +880,26 @@ final class RuntimeDiagnosticsCoordinator {
         Self.logger.info("\(dump, privacy: .private)")
     }
 
+    /// Escape hatch: clear the *focused* window's learned/cached runtime state — inferred resize
+    /// minimum, cached AX constraints, managed-replacement identity — then drop its engine
+    /// constraint and relayout so it re-derives from fresh reality. Fixes a window stuck by a
+    /// wrongly-learned resize minimum (a transient refusal taught as a permanent floor) without the
+    /// nuclear all-windows `resetRuntimeState()`.
+    func resetFocusedWindowRuntimeState() {
+        guard let controller else { return }
+        guard let token = controller.focusedOrFrontmostWindowTokenForAutomation(
+            preferFrontmostWhenNonManagedFocusActive: true
+        ) else { return }
+        controller.workspaceManager.resetWindowRuntimeState(for: token)
+        if let engine = controller.niriEngine {
+            // Undo any inflated learned constraint the engine holds, and force widths to re-resolve
+            // against freshly-fetched AX constraints on the next layout.
+            engine.updateWindowConstraints(for: token, constraints: .unconstrained)
+            engine.invalidateCachedLayoutSpans()
+        }
+        controller.layoutRefreshController.requestRefresh(reason: .layoutCommand)
+    }
+
     func resetRuntimeState() {
         guard let controller else { return }
         if runtimeTraceCaptureSession != nil {

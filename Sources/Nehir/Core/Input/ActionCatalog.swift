@@ -959,6 +959,7 @@ enum ActionCatalog {
         case .debugDumpRuntimeState: "Debug: Dump Runtime State"
         case .debugResetRuntimeState: "Debug: Reset Runtime State"
         case .debugRestartClearingRuntimeState: "Debug: Restart Clearing Runtime State"
+        case .debugResetFocusedWindowRuntime: "Debug: Reset Focused Window Runtime"
         case .debugToggleTraceCapture: "Debug: Toggle Trace Capture"
         case .toggleWorkspaceBarVisibility: "Toggle Workspace Bar"
         case .toggleOverview: "Toggle Overview"
@@ -1131,6 +1132,8 @@ enum ActionCatalog {
             .debugResetRuntimeState
         case .debugRestartClearingRuntimeState:
             .debugRestartClearingRuntimeState
+        case .debugResetFocusedWindowRuntime:
+            .debugResetFocusedWindowRuntime
         case .debugToggleTraceCapture:
             .debugToggleTraceCapture
         case .toggleFocusFollowsMouse:

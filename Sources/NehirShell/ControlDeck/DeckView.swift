@@ -42,6 +42,8 @@ struct DeckView: View {
             DeckDisplayView(model: model)
         case .layout:
             DeckLayoutView(model: model)
+        case .internals:
+            DeckInternalsView(model: model)
         case .root:
             rootLayout
         default:

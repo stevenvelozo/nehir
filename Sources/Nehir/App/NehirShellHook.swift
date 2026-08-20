@@ -63,6 +63,19 @@ enum NehirShellHook {
     /// fork config. Off by default = upstream hide-on-neighbor behavior.
     nonisolated(unsafe) static var allowCrossMonitorOverflow = false
 
+    /// Abstract-viewport horizontal zoom (fork): the fraction of the monitor's working width
+    /// reserved as a gutter on each side, so the scrolling column stream lays out into a narrower,
+    /// possibly off-center region. A focused "100%" column becomes `1 - leading - trailing` of the
+    /// screen and the neighbor columns' edges peek into the gutters. Both default to 0 (identity:
+    /// the region fills the monitor exactly = upstream behavior). Set by the shell's
+    /// `ViewportInsetController`; read at the single region-shrink funnel `insetWorkingFrame(from:)`
+    /// (folded into the left/right struts) and at the `NiriLayout` park-gate un-clip (so a neighbor
+    /// sitting in a gutter peeks instead of being parked). This is the `.shrink` reveal mode; a
+    /// future `.slide` mode (keep the window full-size, bias the viewport) will add its own seam.
+    /// Same single-writer/main-reader idiom as `allowCrossMonitorOverflow`.
+    nonisolated(unsafe) static var viewportInsetLeadingFraction: CGFloat = 0
+    nonisolated(unsafe) static var viewportInsetTrailingFraction: CGFloat = 0
+
     /// When true, the layout refresh must NOT raise a revealed/moved window to absolute front
     /// (the SkyLight `orderWindow` reveal-raise). Set by the shell while the Deck's interactive
     /// reorder list is on screen: otherwise a window the reorder moves is raised OVER that

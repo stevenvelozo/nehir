@@ -40,6 +40,9 @@ struct DeckDisplayView: View {
             toggleRow("O", "Cross-display overflow", on: model.crossMonitorOverflowEnabled) {
                 model.toggleCrossMonitorOverflow()
             }
+            cycleRow("Z", "Viewport zoom", value: model.viewportZoomLabel) {
+                model.cycleViewportZoomAction()
+            }
         }
         .frame(width: 320, alignment: .leading)
     }

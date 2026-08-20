@@ -63,6 +63,10 @@ public enum NehirShell {
     /// The global layout-family controller (River / Blades / Free), held for the app's life.
     @MainActor static var layoutModes: LayoutModeController?
 
+    /// The abstract-viewport zoom controller, held for the app's lifetime so the persisted zoom
+    /// applies from the first layout and the Deck can cycle it live.
+    @MainActor static var viewportInset: ViewportInsetController?
+
     /// Persistent off-screen-column edge indicators, updated live from the layout hook.
     @MainActor static var offEdgeIndicators: OffEdgeIndicatorController?
 
@@ -187,6 +191,8 @@ public enum NehirShell {
 
         let layoutModes = LayoutModeController(controller: controller)
         self.layoutModes = layoutModes
+        let viewportInset = ViewportInsetController(controller: controller)
+        self.viewportInset = viewportInset
 
         let offEdge = OffEdgeIndicatorController()
         offEdge.controller = controller
@@ -205,6 +211,7 @@ public enum NehirShell {
             deck.onCheckForUpdates = { [weak updater] in updater?.checkForUpdates() }
         }
         deck.layoutModeController = layoutModes
+        deck.viewportInsetController = viewportInset
         deck.overlays = overlays
         deck.install(chord: DeckHotkeyChord.parse(config.deck.hotkey))
         self.deck = deck

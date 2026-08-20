@@ -22,6 +22,7 @@ enum DeckCatalog {
         case .configureEdit: configureEdit
         case .display: display
         case .layout: layout
+        case .internals: internals
         }
     }
 
@@ -30,6 +31,10 @@ enum DeckCatalog {
 
     /// The layout-engine pane: pick the global layout family (River / Blades / Free).
     static let layout = DeckMode(id: .layout, title: "Layout engine", actions: [])
+
+    /// The Advanced Internals pane: per-window engine runtime state (resize floors, cached
+    /// constraints, manual overrides) with anomalies highlighted and per-row reset.
+    static let internals = DeckMode(id: .internals, title: "Advanced internals", actions: [])
 
     /// The drill-in lists. Rows are supplied live by the model (`pickItems`), not static
     /// here; digit keys select, driven by those rows.
@@ -153,6 +158,14 @@ enum DeckCatalog {
                 title: "Engine",
                 symbol: "square.stack.3d.down.right",
                 kind: .enterMode(.layout)
+            ),
+            // Advanced internals: per-window engine runtime state + reset.
+            DeckAction(
+                key: .character("a"),
+                keyLabel: "A",
+                title: "Advanced internals",
+                symbol: "gauge.with.dots.needle.bottom.50percent",
+                kind: .enterMode(.internals)
             ),
             // Touch/click entry to the Columns drill-in (number + window title list).
             // The digit bindings below stay bound at root too, so `⌘D → 1` still jumps

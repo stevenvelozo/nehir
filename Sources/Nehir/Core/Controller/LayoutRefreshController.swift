@@ -592,9 +592,13 @@ import QuartzCore
                 if let minH = entry.ruleEffects.minHeight {
                     mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, minH)
                 }
-                if let inferredMinimum = controller.workspaceManager.inferredResizeMinimumSize(for: entry.token) {
-                    mergedConstraints.minSize.width = max(mergedConstraints.minSize.width, inferredMinimum.width)
-                    mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, inferredMinimum.height)
+                // Ephemeral overlap floor from a live resize refusal (NOT a learned minimum): keep
+                // this window's column at least as wide as the size it currently refuses to shrink
+                // below, so neighbors don't overlap it. Cleared on any resize intent, so the desired
+                // size is re-tested then instead of pinned forever.
+                if let resizeFloor = controller.workspaceManager.observedResizeFloor(for: entry.token) {
+                    mergedConstraints.minSize.width = max(mergedConstraints.minSize.width, resizeFloor.width)
+                    mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, resizeFloor.height)
                 }
                 mergedConstraints = mergedConstraints.normalized()
             }
@@ -4197,33 +4201,36 @@ import QuartzCore
                     forceOrdering: true
                 )
                 controller.axManager.recordFrameApplyTrace(
-                    "resizeMin.skipQuantization id=\(entry.windowId) target=\(LayoutTrace.rect(result.targetFrame)) observed=\(LayoutTrace.rect(observedFrame)) streak=\(streakCount)"
+                    "resizeFloor.skipQuantization id=\(entry.windowId) target=\(LayoutTrace.rect(result.targetFrame)) observed=\(LayoutTrace.rect(observedFrame)) streak=\(streakCount)"
                 )
                 return
             }
 
             quantizationSkipStreakByToken[entry.token] = nil
             controller.axManager.recordFrameApplyTrace(
-                "resizeMin.quantizationStreakEscalated id=\(entry.windowId) target=\(LayoutTrace.rect(result.targetFrame)) observed=\(LayoutTrace.rect(observedFrame)) streak=\(streakCount)"
+                "resizeFloor.quantizationStreakEscalated id=\(entry.windowId) target=\(LayoutTrace.rect(result.targetFrame)) observed=\(LayoutTrace.rect(observedFrame)) streak=\(streakCount)"
             )
         }
 
-        guard let minimumSize = inferredResizeMinimumSize(for: result, entry: entry) else { return }
+        guard let floorSize = resizeFloorSize(for: result, entry: entry) else { return }
 
-        let previousMinimumSize = controller.workspaceManager.inferredResizeMinimumSize(for: entry.token)
-        let mergedMinimumSize = mergedInferredResizeMinimumSize(minimumSize, previous: previousMinimumSize)
-        let inferredMinimumIncreased = previousMinimumSize.map {
-            mergedMinimumSize.width > $0.width || mergedMinimumSize.height > $0.height
+        // EPHEMERAL floor: record the size the window just refused to shrink below, REPLACING (never
+        // max-ing) any prior value, so the layout places neighbors around the live width without
+        // pinning a permanent "learned minimum". Cleared outright on any resize intent
+        // (`clearResizeFloorForResizeIntent`), so a document change / explicit resize re-tests.
+        let previousFloor = controller.workspaceManager.observedResizeFloor(for: entry.token)
+        let floorChanged = previousFloor.map {
+            abs($0.width - floorSize.width) > 0.5 || abs($0.height - floorSize.height) > 0.5
         } ?? true
-        controller.workspaceManager.setInferredResizeMinimumSize(mergedMinimumSize, for: entry.token)
+        controller.workspaceManager.setObservedResizeFloor(floorSize, for: entry.token)
         if let engine = controller.niriEngine {
             var constraints = controller.workspaceManager.cachedConstraints(for: entry.token) ?? .unconstrained
-            constraints.minSize.width = max(constraints.minSize.width, mergedMinimumSize.width)
-            constraints.minSize.height = max(constraints.minSize.height, mergedMinimumSize.height)
+            constraints.minSize.width = max(constraints.minSize.width, floorSize.width)
+            constraints.minSize.height = max(constraints.minSize.height, floorSize.height)
             engine.updateWindowConstraints(for: entry.token, constraints: constraints)
         }
         controller.axManager.recordFrameApplyTrace(
-            "resizeMin.learn id=\(entry.windowId) source=refusal target=\(LayoutTrace.rect(result.targetFrame)) observed=\(LayoutTrace.rect(result.writeResult.observedFrame)) minimum=\(String(format: "%.1fx%.1f", mergedMinimumSize.width, mergedMinimumSize.height))"
+            "resizeFloor.set id=\(entry.windowId) source=refusal target=\(LayoutTrace.rect(result.targetFrame)) observed=\(LayoutTrace.rect(result.writeResult.observedFrame)) floor=\(String(format: "%.1fx%.1f", floorSize.width, floorSize.height))"
         )
         if let observedFrame = result.writeResult.observedFrame {
             controller.axManager.confirmFrameWrite(for: entry.windowId, frame: observedFrame)
@@ -4233,7 +4240,7 @@ import QuartzCore
                 forceOrdering: true
             )
         }
-        if inferredMinimumIncreased {
+        if floorChanged {
             for tiledEntry in controller.workspaceManager.tiledEntries(in: entry.workspaceId)
                 where controller.workspaceManager.hiddenState(for: tiledEntry.token) == nil
             {
@@ -4243,15 +4250,7 @@ import QuartzCore
         }
     }
 
-    private func mergedInferredResizeMinimumSize(_ minimumSize: CGSize, previous: CGSize?) -> CGSize {
-        guard let previous else { return minimumSize }
-        return CGSize(
-            width: max(previous.width, minimumSize.width),
-            height: max(previous.height, minimumSize.height)
-        )
-    }
-
-    private func inferredResizeMinimumSize(
+    private func resizeFloorSize(
         for result: AXFrameApplyResult,
         entry: WindowModel.Entry
     ) -> CGSize? {
@@ -4270,7 +4269,7 @@ import QuartzCore
                 return nil
             }
             let constraints = resizeMinimumConstraints(for: entry, observedFrame: result.writeResult.observedFrame)
-            return inferredResizeMinimumSize(
+            return resizeFloorSize(
                 targetSize: result.targetFrame.size,
                 observedSize: observedSize,
                 constraints: constraints
@@ -4287,7 +4286,7 @@ import QuartzCore
                 return constraints.minSize
             }
             let constraints = resizeMinimumConstraints(for: entry, observedFrame: result.writeResult.observedFrame)
-            return inferredResizeMinimumSize(
+            return resizeFloorSize(
                 targetSize: result.targetFrame.size,
                 observedSize: observedSize,
                 constraints: constraints
@@ -4353,7 +4352,7 @@ import QuartzCore
             && withinThreshold(target.origin.y, observed.origin.y)
     }
 
-    private func inferredResizeMinimumSize(
+    private func resizeFloorSize(
         targetSize: CGSize,
         observedSize: CGSize?,
         constraints: WindowSizeConstraints

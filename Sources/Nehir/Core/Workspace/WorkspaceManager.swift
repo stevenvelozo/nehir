@@ -378,7 +378,7 @@ final class WorkspaceManager {
         let replacementMetadataCount = entries.filter { $0.managedReplacementMetadata != nil }.count
         let replacementCorrelationCount = entries.filter { $0.replacementCorrelation != nil }.count
         let cachedConstraintsCount = entries.filter { $0.cachedConstraints != nil }.count
-        let inferredResizeMinimumCount = entries.filter { $0.inferredResizeMinimumSize != nil }.count
+        let observedResizeFloorCount = entries.filter { $0.observedResizeFloor != nil }.count
         let manualOverrideCount = entries.filter { $0.manualLayoutOverride != nil }.count
         let hiddenCount = entries.filter { $0.visibility != .visible }.count
         let nonStandardLayoutReasonCount = entries.filter { $0.layoutReason != .standard }.count
@@ -395,7 +395,7 @@ final class WorkspaceManager {
             "interaction current=\(sessionState.interactionMonitorId.map(String.init(describing:)) ?? "nil") previous=\(sessionState.previousInteractionMonitorId.map(String.init(describing:)) ?? "nil") nonManaged=\(sessionState.focus.isNonManagedFocusActive) appFullscreen=\(sessionState.focus.isAppFullscreenActive) lease=\(sessionState.focus.focusLease != nil)",
             "nativeFullscreen records=\(nativeFullscreenRecordsByOriginalToken.count) pendingTransitions=\(hasPendingNativeFullscreenTransition)",
             "restore disconnectedVisibleWorkspaceCache=\(disconnectedVisibleWorkspaceCache.count) consumedPersistedEntries=\(consumedBootPersistedWindowRestoreEntries.count) persistedDirty=\(persistedWindowRestoreCatalogDirty) saveScheduled=\(persistedWindowRestoreCatalogSaveScheduled) buildInFlight=\(persistedWindowRestoreCatalogBuildInFlight) revision=\(persistedWindowRestoreCatalogRevision)",
-            "windowRuntime replacementMetadata=\(replacementMetadataCount) replacementCorrelation=\(replacementCorrelationCount) cachedConstraints=\(cachedConstraintsCount) inferredResizeMinimums=\(inferredResizeMinimumCount) manualOverrides=\(manualOverrideCount) nonStandardLayoutReasons=\(nonStandardLayoutReasonCount)"
+            "windowRuntime replacementMetadata=\(replacementMetadataCount) replacementCorrelation=\(replacementCorrelationCount) cachedConstraints=\(cachedConstraintsCount) observedResizeFloors=\(observedResizeFloorCount) manualOverrides=\(manualOverrideCount) nonStandardLayoutReasons=\(nonStandardLayoutReasonCount)"
         ].joined(separator: "\n")
     }
 
@@ -509,6 +509,12 @@ final class WorkspaceManager {
         case .scratchpad:
             return "scratchpad"
         }
+    }
+
+    /// Surgically clear one window's learned/cached runtime state (per-window sibling of
+    /// `resetRuntimeStateForDebug`). See `WindowModel.resetRuntimeState(for:)`.
+    func resetWindowRuntimeState(for token: WindowToken) {
+        windows.resetRuntimeState(for: token)
     }
 
     func resetRuntimeStateForDebug() {
@@ -3449,12 +3455,12 @@ final class WorkspaceManager {
         windows.setCachedConstraints(constraints, for: token)
     }
 
-    func inferredResizeMinimumSize(for token: WindowToken) -> CGSize? {
-        windows.inferredResizeMinimumSize(for: token)
+    func observedResizeFloor(for token: WindowToken) -> CGSize? {
+        windows.observedResizeFloor(for: token)
     }
 
-    func setInferredResizeMinimumSize(_ size: CGSize?, for token: WindowToken) {
-        windows.setInferredResizeMinimumSize(size, for: token)
+    func setObservedResizeFloor(_ size: CGSize?, for token: WindowToken) {
+        windows.setObservedResizeFloor(size, for: token)
     }
 
     @discardableResult

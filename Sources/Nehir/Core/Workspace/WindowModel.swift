@@ -185,7 +185,7 @@ final class WindowModel {
         var prevParentKind: ParentKind?
         var cachedConstraints: WindowSizeConstraints?
         var constraintsCacheTime: Date?
-        var inferredResizeMinimumSize: CGSize?
+        var observedResizeFloor: CGSize?
 
         var token: WindowToken {
             handle.id
@@ -405,7 +405,7 @@ final class WindowModel {
                 entry.ruleEffects = ruleEffects
                 entry.cachedConstraints = nil
                 entry.constraintsCacheTime = nil
-                entry.inferredResizeMinimumSize = nil
+                entry.observedResizeFloor = nil
             }
             missingDetectionCountByToken.removeValue(forKey: token)
             return token
@@ -466,7 +466,7 @@ final class WindowModel {
         entry.axRef = newAXRef
         entry.cachedConstraints = nil
         entry.constraintsCacheTime = nil
-        entry.inferredResizeMinimumSize = nil
+        entry.observedResizeFloor = nil
         if let managedReplacementMetadata {
             entry.managedReplacementMetadata = managedReplacementMetadata
         }
@@ -786,25 +786,21 @@ final class WindowModel {
         entry.constraintsCacheTime = Date()
     }
 
-    func inferredResizeMinimumSize(for token: WindowToken) -> CGSize? {
-        entries[token]?.inferredResizeMinimumSize
+    func observedResizeFloor(for token: WindowToken) -> CGSize? {
+        entries[token]?.observedResizeFloor
     }
 
-    func setInferredResizeMinimumSize(_ size: CGSize?, for token: WindowToken) {
+    /// Record the size a window just refused to shrink below, as an EPHEMERAL floor used only to
+    /// keep neighbors from overlapping it — NOT a learned minimum. Non-monotonic (replace, never
+    /// max), so a later smaller refusal lowers it; it is cleared outright on any resize intent. The
+    /// "react per-layout" replacement for the old inferred minimum that ratcheted up and never let go.
+    func setObservedResizeFloor(_ size: CGSize?, for token: WindowToken) {
         guard let entry = entries[token] else { return }
         guard let size else {
-            entry.inferredResizeMinimumSize = nil
+            entry.observedResizeFloor = nil
             return
         }
-        let normalized = CGSize(width: max(1, size.width), height: max(1, size.height))
-        if let existing = entry.inferredResizeMinimumSize {
-            entry.inferredResizeMinimumSize = CGSize(
-                width: max(existing.width, normalized.width),
-                height: max(existing.height, normalized.height)
-            )
-        } else {
-            entry.inferredResizeMinimumSize = normalized
-        }
+        entry.observedResizeFloor = CGSize(width: max(1, size.width), height: max(1, size.height))
     }
 
     func resetRuntimeStateForDebug() {
@@ -815,8 +811,23 @@ final class WindowModel {
             entry.managedReplacementMetadata = nil
             entry.cachedConstraints = nil
             entry.constraintsCacheTime = nil
-            entry.inferredResizeMinimumSize = nil
+            entry.observedResizeFloor = nil
         }
+    }
+
+    /// Per-window sibling of `resetRuntimeStateForDebug`: clear the learned/cached runtime state
+    /// nehir accumulates for ONE window — inferred resize minimum, cached AX constraints, and
+    /// managed-replacement identity. Lets a wrong learned value (e.g. a resize minimum stuck from a
+    /// transient refusal) be cleared surgically without the nuclear all-windows reset. The caller
+    /// re-fetches constraints and relayouts.
+    func resetRuntimeState(for token: WindowToken) {
+        missingDetectionCountByToken[token] = nil
+        guard let entry = entries[token] else { return }
+        entry.replacementCorrelation = nil
+        entry.managedReplacementMetadata = nil
+        entry.cachedConstraints = nil
+        entry.constraintsCacheTime = nil
+        entry.observedResizeFloor = nil
     }
 
     func clearAll() {

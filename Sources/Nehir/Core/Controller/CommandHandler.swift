@@ -44,11 +44,31 @@ final class CommandHandler {
     }
 
     @discardableResult
+    /// Commands that re-request a window/column size. Any ephemeral resize floor must be cleared for
+    /// these so the desired size is re-tested (see `WMController.clearResizeFloorsForResizeIntent`).
+    private static func reconsidersWindowSize(_ command: HotkeyCommand) -> Bool {
+        switch command {
+        case .cycleColumnWidthForward, .cycleColumnWidthBackward,
+             .cycleWindowWidthForward, .cycleWindowWidthBackward,
+             .toggleColumnFullWidth, .expandColumnToAvailableWidth,
+             .setColumnWidth, .setWindowWidth, .balanceSizes:
+            return true
+        default:
+            return false
+        }
+    }
+
     func performCommand(_ command: HotkeyCommand) -> ExternalCommandResult {
         guard let controller else { return .notFound }
         guard controller.isEnabled else { return .ignoredDisabled }
         guard !Self.shouldIgnoreCommand(command, isOverviewOpen: controller.isOverviewOpen()) else {
             return .ignoredOverview
+        }
+
+        // A resize command is a fresh size intent: drop any ephemeral resize floors so the desired
+        // size is re-tested rather than clamped by a stale floor left from an earlier refusal.
+        if Self.reconsidersWindowSize(command) {
+            controller.clearResizeFloorsForResizeIntent()
         }
 
         switch command {
@@ -214,6 +234,8 @@ final class CommandHandler {
             controller.diagnostics.resetRuntimeState()
         case .debugRestartClearingRuntimeState:
             controller.diagnostics.restartAppClearingRuntimeState()
+        case .debugResetFocusedWindowRuntime:
+            controller.diagnostics.resetFocusedWindowRuntimeState()
         case .debugToggleTraceCapture:
             return controller.diagnostics.toggleRuntimeTraceCapture()
         case .toggleWorkspaceBarVisibility:
