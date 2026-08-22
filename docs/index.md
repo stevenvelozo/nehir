@@ -10,6 +10,7 @@ title: Nehir Documentation
 - [Configuration Principles](CONFIGURATION.md) — split config layout, app rules, design rationale, file reference
 - [Settings Migrations](SETTINGS_MIGRATIONS.md) — gradual config migration policy and registry
 - [IPC & CLI Reference](IPC-CLI.md) — `nehirctl` commands and socket protocol
+- [nehirctl Emergency Cheatsheet](nehirctl-emergency-cheatsheet.md) — capture state + recover when Nehir wedges (input capture, stuck focus); works over SSH
 - [Offscreen Window Clamp Fix](offscreen-clamp-fix.md) — macOS offscreen-parking limitations and the failure log of attempted hide strategies
 - [Interactive OSD Overlays](osd-interactive-overlays.md) — building clickable/draggable Deck primitives: agent-app constraints, the overlay-covering gotcha, and working AppKit patterns
 - [Recipes](recipes/README.md) — companion setup snippets
