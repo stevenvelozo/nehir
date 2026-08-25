@@ -115,6 +115,7 @@ public enum NehirShell {
             // Deck, so it comes up even when the Deck is disabled.
             let overlays = OverlayController(core: core, controller: controller)
             overlays.start(bindings: config.overlays)
+            overlays.configureTerminal(config.terminal)
             self.overlays = overlays
 
             // Stand up the control socket in front of config + the logic core.

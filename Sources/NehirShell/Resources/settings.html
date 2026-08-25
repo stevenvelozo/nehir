@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nehir Terminal Settings</title>
+<style>
+  body { font: 14px -apple-system, system-ui, sans-serif; margin: 0; padding: 20px; background: #1e1e1e; color: #eee; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 14px; }
+  #NehirSettingsForm { max-width: 560px; }
+  .pict-input, input, select { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; }
+  label { display: block; margin: 6px 0 2px; color: #bbb; font-size: 12px; }
+  .actions { margin-top: 18px; }
+  button { background: #2E7D74; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+  button.secondary { background: #3a3a3a; }
+  #debug { margin-top: 16px; font: 11px ui-monospace, monospace; color: #888; white-space: pre-wrap; }
+</style>
+<script src="./pict.min.js"></script>
+<script src="./pict-section-form.min.js"></script>
+</head>
+<body>
+<h1>Terminal Settings</h1>
+<div id="Pict-Form-Container"></div>
+<div class="actions">
+  <button onclick="_Pict.PictApplication.saveSettings()">Save</button>
+  <button class="secondary" onclick="_Pict.PictApplication.closeSettings()">Close</button>
+</div>
+
+<script>
+// ---- Form manifest (Manyfest/pict-section-form): describes the fields ----
+var NEHIR_TERMINAL_MANIFEST =
+{
+  "Scope": "NehirTerminal",
+  "Sections":
+  [
+    {
+      "Hash": "Appearance",
+      "Name": "Appearance",
+      "Groups":
+      [
+        { "Hash": "Font", "Name": "Font" },
+        { "Hash": "Look", "Name": "Look" }
+      ]
+    }
+  ],
+  "Descriptors":
+  {
+    "Terminal.fontSize":     { "Name": "Font size (pt)",   "Hash": "fontSize",     "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Font", "Row": 1, "Width": 6, "InputType": "Number" } },
+    "Terminal.fontFamily":   { "Name": "Font family",      "Hash": "fontFamily",   "DataType": "String", "PictForm": { "Section": "Appearance", "Group": "Font", "Row": 2, "Width": 12, "InputType": "Option", "SelectOptions": [ { "id": "", "text": "Default (system mono)" } ] } },
+    "Terminal.opacity":      { "Name": "Opacity (0-1)",    "Hash": "opacity",      "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 1, "Width": 6, "InputType": "Number" } },
+    "Terminal.cornerRadius": { "Name": "Corner radius (pt)","Hash": "cornerRadius", "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 1, "Width": 6, "InputType": "Number" } },
+    "Terminal.margin":       { "Name": "Edge margin (pt)", "Hash": "margin",       "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 2, "Width": 6, "InputType": "Number" } },
+    "Terminal.padding":      { "Name": "Inner padding (pt)","Hash": "padding",      "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 3, "Width": 6, "InputType": "Number" } }
+  }
+};
+
+// Current values are injected by the host (nehir) before load; fall back to defaults.
+var NEHIR_TERMINAL_DEFAULTS = { fontSize: 13, fontFamily: "", opacity: 1.0, cornerRadius: 12, margin: 72, padding: 10 };
+
+function nehirDebug(pMessage)
+{
+  try { console.log('[nehir-settings] ' + pMessage); } catch (pError) { /* ignore */ }
+}
+
+// The settings application extends the section's PictFormApplication.
+window.NehirTerminalSettings = class extends PictSectionForm.PictFormApplication
+{
+  onBeforeInitializeAsync(fCallback)
+  {
+    var current = window.__nehirTerminalSettings || NEHIR_TERMINAL_DEFAULTS;
+    this.pict.AppData.Terminal = Object.assign({}, NEHIR_TERMINAL_DEFAULTS, current);
+    nehirDebug('seeded AppData.Terminal = ' + JSON.stringify(this.pict.AppData.Terminal));
+    return super.onBeforeInitializeAsync ? super.onBeforeInitializeAsync(fCallback) : fCallback();
+  }
+
+  onAfterInitializeAsync(fCallback)
+  {
+    // AutoRender does not fire through safeLoadPictApplication, so render the form now.
+    if (this.pict.views.PictFormMetacontroller) { this.pict.views.PictFormMetacontroller.render(); }
+    nehirDebug('form rendered');
+    // Ask the host for the installed fonts (populates the dropdown), then the live
+    // config. Fonts first so the saved font's option exists before it is selected.
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehir)
+    {
+      var bridge = window.webkit.messageHandlers.nehir;
+      bridge.postMessage({ action: 'fontsGet' });
+      bridge.postMessage({ action: 'settingsGet' });
+    }
+    return super.onAfterInitializeAsync ? super.onAfterInitializeAsync(fCallback) : fCallback();
+  }
+
+  // Pull the current form values out of the rendered inputs into AppData, coerced
+  // to the types the host expects (numbers for size/opacity/radius).
+  collectValues()
+  {
+    var metacontroller = this.pict.views.PictFormMetacontroller;
+    if (metacontroller && typeof metacontroller.marshalFromView === 'function')
+    {
+      try { metacontroller.marshalFromView(); } catch (pError) { nehirDebug('marshalFromView error: ' + pError); }
+    }
+    var raw = this.pict.AppData.Terminal || {};
+    function num(pValue, pFallback) { var n = parseFloat(pValue); return isFinite(n) ? n : pFallback; }
+    return {
+      fontSize:     num(raw.fontSize, NEHIR_TERMINAL_DEFAULTS.fontSize),
+      fontFamily:   String(raw.fontFamily == null ? '' : raw.fontFamily),
+      opacity:      num(raw.opacity, NEHIR_TERMINAL_DEFAULTS.opacity),
+      cornerRadius: num(raw.cornerRadius, NEHIR_TERMINAL_DEFAULTS.cornerRadius),
+      margin:       num(raw.margin, NEHIR_TERMINAL_DEFAULTS.margin),
+      padding:      num(raw.padding, NEHIR_TERMINAL_DEFAULTS.padding)
+    };
+  }
+
+  closeSettings()
+  {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehir)
+    {
+      window.webkit.messageHandlers.nehir.postMessage({ action: 'overlayClose' });
+    }
+  }
+
+  saveSettings()
+  {
+    var values = this.collectValues();
+    // In nehir this posts to the Swift bridge; in the browser harness we just log.
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehir)
+    {
+      window.webkit.messageHandlers.nehir.postMessage({ action: 'settingsSet', section: 'terminal', values: values });
+    }
+    else
+    {
+      nehirDebug('SAVE (browser harness) → ' + JSON.stringify(values));
+    }
+  }
+};
+
+window.NehirTerminalSettings.default_configuration =
+{
+  Product: "NehirTerminalSettings",
+  pict_configuration:
+  {
+    Product: "NehirTerminalSettings",
+    DefaultFormManifest: NEHIR_TERMINAL_MANIFEST
+  }
+};
+
+// The host (nehir) calls this with the installed monospaced font families, so the
+// dropdown reflects what's actually available on this machine.
+window.applyHostFonts = function(fonts)
+{
+  try
+  {
+    var select = document.querySelector('#Pict-Form-Container select');
+    if (!select) { return; }
+    var current = ((_Pict.PictApplication.pict.AppData.Terminal) || {}).fontFamily || select.value || "";
+    var html = '<option value="">Default (system mono)</option>';
+    (fonts || []).forEach(function(pFont)
+    {
+      var safe = String(pFont).replace(/</g, '&lt;').replace(/"/g, '&quot;');
+      html += '<option value="' + safe + '">' + safe + '</option>';
+    });
+    select.innerHTML = html;
+    select.value = current;
+    nehirDebug('applied ' + (fonts ? fonts.length : 0) + ' host fonts');
+  }
+  catch (pError) { nehirDebug('applyHostFonts error: ' + pError); }
+};
+
+// The host (nehir) calls this to push the live config into the rendered form.
+window.applyHostSettings = function(values)
+{
+  try
+  {
+    var app = _Pict.PictApplication;
+    app.pict.AppData.Terminal = Object.assign({}, NEHIR_TERMINAL_DEFAULTS, values || {});
+    var metacontroller = app.pict.views.PictFormMetacontroller;
+    if (metacontroller && typeof metacontroller.marshalToView === 'function') { metacontroller.marshalToView(); }
+    nehirDebug('applied host settings ' + JSON.stringify(app.pict.AppData.Terminal));
+  }
+  catch (pError) { nehirDebug('applyHostSettings error: ' + pError); }
+};
+
+Pict.safeOnDocumentReady(function()
+{
+  try
+  {
+    Pict.safeLoadPictApplication(window.NehirTerminalSettings, 1);
+  }
+  catch (pError)
+  {
+    nehirDebug('bootstrap error: ' + (pError && pError.stack ? pError.stack : pError));
+  }
+});
+</script>
+</body>
+</html>

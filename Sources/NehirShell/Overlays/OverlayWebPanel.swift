@@ -14,6 +14,10 @@ import WebKit
 final class OverlayKeyPanel: NSPanel {
     var onEsc: (() -> Void)?
     var onResignKey: (() -> Void)?
+    /// ⌘W handler, distinct from `onEsc` so a persistent panel (the inherent
+    /// terminal) can end its session on ⌘W while Esc merely dismisses it. When
+    /// nil, ⌘W falls back to `onEsc` (the webview overlays' existing behavior).
+    var onCommandW: (() -> Void)?
 
     override var canBecomeKey: Bool {
         true
@@ -37,7 +41,7 @@ final class OverlayKeyPanel: NSPanel {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "w" {
-            onEsc?()
+            (onCommandW ?? onEsc)?()
             return true
         }
         return super.performKeyEquivalent(with: event)

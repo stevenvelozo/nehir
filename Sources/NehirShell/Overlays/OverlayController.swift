@@ -73,6 +73,9 @@ final class OverlayController {
     private var webBridges: [String: OverlayWebBridge] = [:]
     /// Floating SwiftTerm panel for the "Run here" target.
     private let terminalController = OverlayTerminalController()
+    /// True once the inherent terminal has been summoned and not yet ⌘W-closed, so
+    /// the Deck re-presents it above the controls each time the OSD opens.
+    private var terminalActive = false
     private var lastLoadedURL: [String: URL] = [:]
     /// True while an interactive overlay is up (it activated the app so clicks and
     /// keys land); drives returning focus to the previous app on dismiss.
@@ -123,6 +126,7 @@ final class OverlayController {
         _ = try? core.evaluate(Self.bootstrapJS)
         installCapabilities()
         _ = try? core.evaluate(Self.builtinToolsJS)
+        _ = try? core.evaluate(Self.builtinSettingsJS)
         loadScripts()
         bindHotkeys(bindings)
     }
@@ -519,6 +523,19 @@ final class OverlayController {
     shell.overlay.osd("tools", { group: "Extensions", key: "x", label: "Tools" }, function () { return "Command builder"; });
     """
 
+    /// The built-in "settings" overlay: the pict-section-form settings editor,
+    /// opened from the menu-bar status item's right-click menu. Not bound to a Deck
+    /// chord (no osd entry) — it is a menu-bar surface, summoned via show("settings").
+    private static let builtinSettingsJS = """
+    shell.overlay.register("settings", function () {
+      return {
+        source: { kind: "webview", url: "nehir-resource://settings.html" },
+        present: { anchor: "activeMonitorCenter", sizeClass: "large" },
+        dismiss: { on: ["esc", "clickAway"] }
+      };
+    });
+    """
+
     /// Handle an action a webview overlay posted via `window.webkit.messageHandlers.nehir`.
     private func handleWebAction(_ body: [String: Any]) {
         guard let action = body["action"] as? String else { return }
@@ -527,6 +544,14 @@ final class OverlayController {
             let command = (body["command"] as? String) ?? ""
             guard !command.isEmpty else { return }
             runWebCommand(command, target: (body["target"] as? String) ?? "clipboard")
+        case "settingsGet":
+            sendCurrentTerminalSettings()
+        case "fontsGet":
+            sendAvailableFonts()
+        case "settingsSet":
+            applyTerminalSettings(from: body["values"])
+        case "overlayClose":
+            hide()
         default:
             core.log(.warn, "unknown webview action", ["action": action])
         }
@@ -571,9 +596,147 @@ final class OverlayController {
     /// the terminal relinquishes focus back to the previous app.
     private func presentTerminal(_ command: String) {
         hide()
-        terminalController.run(command: command, frame: terminalFrame()) {
-            NSApp.deactivate()
+        activateInherentTerminal()
+        terminalController.runCommand(command, frame: terminalFrame())
+    }
+
+    /// Apply the configured terminal appearance (font, opacity, corner radius) to
+    /// new inherent-terminal sessions.
+    func configureTerminal(_ config: TerminalConfig) {
+        terminalController.appearance = config
+    }
+
+    /// The terminal-active OSD edge margin (points), read by the Deck layout.
+    var terminalEdgeMargin: CGFloat { CGFloat(terminalController.appearance.margin) }
+
+    /// Answer a `settingsGet` from the settings form by pushing the live terminal
+    /// config into it (the page calls `window.applyHostSettings` with these values).
+    private func sendCurrentTerminalSettings() {
+        guard let webView = webViews["settings"] else { return }
+        let appearance = terminalController.appearance
+        let family = appearance.fontFamily
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let json = "{\"fontSize\":\(appearance.fontSize),\"fontFamily\":\"\(family)\",\"opacity\":\(appearance.opacity),\"cornerRadius\":\(appearance.cornerRadius),\"margin\":\(appearance.margin),\"padding\":\(appearance.padding)}"
+        webView.evaluateJavaScript("window.applyHostSettings && window.applyHostSettings(\(json));", completionHandler: nil)
+    }
+
+    /// Answer a `fontsGet` from the settings form with the installed monospaced font
+    /// families, so the font dropdown reflects what's actually available on this
+    /// machine (the JS-on-Swift host-data bridge — the page asks Swift for system info).
+    private func sendAvailableFonts() {
+        guard let webView = webViews["settings"] else { return }
+        var families = Set<String>()
+        for name in NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? [] {
+            if let family = NSFont(name: name, size: 12)?.familyName { families.insert(family) }
         }
+        let items = families.sorted().map { family -> String in
+            let safe = family.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            return "\"\(safe)\""
+        }
+        let jsonArray = "[" + items.joined(separator: ",") + "]"
+        webView.evaluateJavaScript("window.applyHostFonts && window.applyHostFonts(\(jsonArray));", completionHandler: nil)
+    }
+
+    /// Apply settings posted by the settings form: update the live appearance (so the
+    /// next terminal summon and the OSD layout pick them up) and persist them to a
+    /// managed shell.d fragment.
+    private func applyTerminalSettings(from valuesAny: Any?) {
+        let values = (valuesAny as? [String: Any]) ?? [:]
+        var config = terminalController.appearance
+        if let fontSize = doubleValue(values["fontSize"]) { config.fontSize = fontSize }
+        if let fontFamily = values["fontFamily"] as? String { config.fontFamily = fontFamily }
+        if let opacity = doubleValue(values["opacity"]) { config.opacity = opacity }
+        if let cornerRadius = doubleValue(values["cornerRadius"]) { config.cornerRadius = cornerRadius }
+        if let margin = doubleValue(values["margin"]) { config.margin = margin }
+        if let padding = doubleValue(values["padding"]) { config.padding = padding }
+        terminalController.appearance = config
+        terminalController.applyAppearanceLive()
+        writeTerminalSettingsFragment(config)
+        // `keys` reveals whether the values dictionary actually arrived + parsed.
+        core.log(.info, "terminal settings saved", [
+            "keys": Array(values.keys).sorted().joined(separator: ","),
+            "fontSize": config.fontSize,
+            "opacity": config.opacity,
+            "margin": config.margin
+        ])
+    }
+
+    /// Coerce a JSON-bridged value (NSNumber / Double / Int / String) to a Double.
+    private func doubleValue(_ value: Any?) -> Double? {
+        switch value {
+        case let d as Double: return d
+        case let i as Int: return Double(i)
+        case let n as NSNumber: return n.doubleValue
+        case let s as String: return Double(s)
+        default: return nil
+        }
+    }
+
+    /// Write the terminal appearance to a managed `20-terminal.toml` fragment that the
+    /// Settings form owns. Hand-edits there are overwritten on the next save.
+    private func writeTerminalSettingsFragment(_ config: TerminalConfig) {
+        let directory = ShellPaths.configDirectory()
+        let file = directory.appendingPathComponent("20-terminal.toml", isDirectory: false)
+        let family = config.fontFamily
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let toml = """
+        # Managed by Nehir Settings (menu bar -> Settings...). Hand-edits here are
+        # overwritten when you save from the Settings panel.
+        [terminal]
+        fontSize = \(config.fontSize)
+        fontFamily = "\(family)"
+        opacity = \(config.opacity)
+        cornerRadius = \(config.cornerRadius)
+        margin = \(config.margin)
+        padding = \(config.padding)
+        """
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? Data(toml.utf8).write(to: file)
+    }
+
+    /// Whether the inherent terminal is active (re-presented with the OSD until it
+    /// is ⌘W-closed). The Deck reads this to switch into its terminal-active layout.
+    var isInherentTerminalActive: Bool { terminalActive }
+
+    /// Mark the inherent terminal active without showing it yet, so the OSD can
+    /// switch to its terminal-active layout before the pane is placed.
+    func markInherentTerminalActive() {
+        activateInherentTerminal()
+    }
+
+    /// Show the inherent terminal as a non-key pane at `frame` (the Deck positions
+    /// it above its controls), but only if it's active — summoned and not yet
+    /// ⌘W-closed. The shell stays warm across OSD shows/hides.
+    func presentInherentTerminalPane(frame: CGRect) {
+        guard terminalActive else { return }
+        terminalController.showPeek(frame: frame)
+    }
+
+    /// Hide the inherent terminal pane (keeping the shell warm) when the OSD hides.
+    func dismissInherentTerminalPane() {
+        terminalController.hide()
+    }
+
+    /// Focus the inherent terminal for typing (the Deck backtick), summoning it at
+    /// `frame` if needed and marking it active so it reappears with the OSD.
+    func focusInherentTerminal(frame: CGRect) {
+        activateInherentTerminal()
+        terminalController.showPeek(frame: frame)
+        terminalController.focus()
+    }
+
+    /// Mark the terminal active (re-presented with the OSD) and wire session-end to
+    /// clear that, so a ⌘W-closed terminal stops reappearing until summoned again.
+    /// Fired when the inherent terminal yields keyboard focus, so the Deck can re-arm
+    /// its key control (set by the Deck).
+    var onInherentTerminalYieldedFocus: () -> Void = {}
+
+    private func activateInherentTerminal() {
+        terminalActive = true
+        terminalController.onSessionEnded = { [weak self] in self?.terminalActive = false }
+        terminalController.onYieldFocus = { [weak self] in self?.onInherentTerminalYieldedFocus() }
     }
 
     /// A centered terminal frame on the active screen.

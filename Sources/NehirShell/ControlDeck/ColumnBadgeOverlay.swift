@@ -469,7 +469,7 @@ final class WindowListOverlayController {
     /// the Deck pane), so the Deck reserves stack space from this even across pane changes.
     private(set) var lastCardSize: CGSize?
 
-    func present(using controller: WMController, belowDeckFrame: CGRect? = nil) {
+    func present(using controller: WMController, belowDeckFrame: CGRect? = nil, rightOfDeckFrame: CGRect? = nil) {
         guard let engine = controller.niriEngine,
               let workspaceId = controller.interactionWorkspace()?.id,
               let screen = NSScreen.main
@@ -527,11 +527,18 @@ final class WindowListOverlayController {
         // Anchor the card just below the Deck (screen coords, bottom-origin), horizontally
         // centered; fall back to a touch below screen center when the Deck frame is unknown.
         let gap: CGFloat = 16
-        let originX = screen.frame.midX - size.width / 2
-        let originY: CGFloat = if let belowDeckFrame {
-            belowDeckFrame.minY - gap - size.height
+        let originX: CGFloat
+        let originY: CGFloat
+        if let rightOfDeckFrame {
+            // To the right of the Deck, top-aligned with it (terminal-active OSD).
+            originX = rightOfDeckFrame.maxX + gap
+            originY = rightOfDeckFrame.maxY - size.height
+        } else if let belowDeckFrame {
+            originX = screen.frame.midX - size.width / 2
+            originY = belowDeckFrame.minY - gap - size.height
         } else {
-            screen.frame.midY - size.height / 2
+            originX = screen.frame.midX - size.width / 2
+            originY = screen.frame.midY - size.height / 2
         }
         card.frame = NSRect(
             x: originX - screen.frame.minX,

@@ -42,11 +42,19 @@ extension ControlDeckController {
             menu.addItem(check)
             menu.addItem(.separator())
         }
+        let settings = NSMenuItem(title: "Settings…", action: #selector(settingsClicked), keyEquivalent: "")
+        settings.target = self
+        menu.addItem(settings)
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Nehir", action: #selector(quitClicked), keyEquivalent: "")
         quit.target = self
         menu.addItem(quit)
         guard let button = statusItem?.button else { return }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
+    @objc private func settingsClicked() {
+        overlays?.show("settings")
     }
 
     @objc private func checkForUpdatesClicked() {

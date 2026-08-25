@@ -372,17 +372,66 @@ final class ControlDeckController: NSObject {
         // receive drag events — it shows but can't be dragged until an `i`-toggle re-fronts it.
         presentColumnBadges()
         installKeyTap()
+        overlays?.presentInherentTerminalPane(frame: inherentTerminalPaneFrame())
     }
 
     func hide() {
         removeKeyTap()
         columnBadges.hide()
         windowList.hide()
+        overlays?.dismissInherentTerminalPane()
         NehirShellHook.suppressRevealRaise = false
         NehirShell.offEdgeIndicators?.setDeckOpen(false)
         OwnedWindowRegistry.shared.unregister(panel)
         panel.orderOut(nil)
         model.reset()
+    }
+
+    /// Backtick focuses the inherent terminal pane for typing, suspending the Deck's
+    /// key capture so keystrokes reach the shell (⌘D hides the OSD; reopening
+    /// restores chord capture). The OSD stays up — the terminal is part of it.
+    private func enterInherentTerminal() {
+        // Switch the OSD into its terminal-active layout (Deck drops to the lower
+        // band, list re-anchors to the Deck's right), then place the focused
+        // terminal in the top band and hand keystrokes to it.
+        overlays?.markInherentTerminalActive()
+        overlays?.onInherentTerminalYieldedFocus = { [weak self] in self?.reclaimDeckKeyControl() }
+        resizeAndCenter()
+        presentColumnBadges()
+        overlays?.focusInherentTerminal(frame: inherentTerminalPaneFrame())
+        removeKeyTap()
+    }
+
+    /// When the terminal yields focus (⌘W, or click / Cmd-Tab away) while the OSD is
+    /// still up, re-arm the Deck's key tap so chords and Esc work again instead of
+    /// leaving the OSD visible but uninteractive.
+    private func reclaimDeckKeyControl() {
+        guard panel.isVisible else { return }
+        removeKeyTap()
+        installKeyTap()
+    }
+
+    /// The frame for the inherent terminal pane: the top band of the screen, above
+    /// the lowered Deck bar, inset by a margin on the top and sides. The Deck bar
+    /// carries the bottom margin, so the terminal + Deck assembly is inset all round.
+    private func inherentTerminalPaneFrame() -> CGRect {
+        let deck = panel.frame
+        let visible = screenForPresentation().visibleFrame
+        let edge = osdEdge(visible)
+        let gap: CGFloat = 16
+        let x = visible.minX + edge
+        let width = visible.width - 2 * edge
+        let bottom = deck.maxY + gap
+        let top = visible.maxY - edge
+        let height = max(160, top - bottom)
+        return CGRect(x: x, y: bottom, width: width, height: height)
+    }
+
+    /// Screen-derived breathing room for the terminal-active OSD assembly (top,
+    /// bottom, and side margins), clamped so it stays sane on small and large displays.
+    private func osdEdge(_ visible: CGRect) -> CGFloat {
+        let configured = overlays?.terminalEdgeMargin ?? 72
+        return min(max(configured, 16), visible.height * 0.3)
     }
 
     // MARK: - Column number badges
@@ -401,7 +450,11 @@ final class ControlDeckController: NSObject {
         columnBadges.present(using: wmController)
         // Feature 2: the separate centered list only shows when the F1/`i` toggle is on.
         if NehirShell.showFullWindowList {
-            windowList.present(using: wmController, belowDeckFrame: panel.frame)
+            if overlays?.isInherentTerminalActive == true {
+                windowList.present(using: wmController, rightOfDeckFrame: panel.frame)
+            } else {
+                windowList.present(using: wmController, belowDeckFrame: panel.frame)
+            }
         } else {
             windowList.hide()
         }
@@ -521,6 +574,17 @@ final class ControlDeckController: NSObject {
         let screen = screenForPresentation()
         let visible = screen.visibleFrame
 
+        // Terminal-active OSD: drop the Deck bar to a lower band (still horizontally
+        // centered, with a bottom margin) so the inherent terminal fills the top band
+        // above it and the window list sits to the Deck's right. Computed straight from
+        // the screen, so the assembly does not drift across dismiss/re-open.
+        if overlays?.isInherentTerminalActive == true {
+            let edge = osdEdge(visible)
+            let origin = NSPoint(x: visible.midX - size.width / 2, y: visible.minY + edge)
+            panel.setFrame(NSRect(origin: origin, size: size), display: true)
+            return
+        }
+
         // When the drag-to-reorder list is shown beneath the Deck, center the Deck + gap + list as a
         // single stack (clamped to the screen) so a tall pane never grows down into the list and the
         // whole thing stays visible. The list's height is stable across pane changes (it tracks the
@@ -583,6 +647,15 @@ final class ControlDeckController: NSObject {
                nsEvent.keyCode == 0x7A || nsEvent.keyCode == 0x22
             {
                 MainActor.assumeIsolated { controller.toggleFullWindowList() }
+                return nil
+            }
+            // Backtick (keyCode 0x32) summons + focuses the persistent inherent
+            // terminal, dismissing the Deck — intercepted here before the
+            // typographic swallow below (backtick is otherwise a no-op punct key).
+            if flags.isDisjoint(with: [.command, .control, .option]),
+               nsEvent.keyCode == 0x32
+            {
+                MainActor.assumeIsolated { controller.enterInherentTerminal() }
                 return nil
             }
             // Other command/control chords are never Deck keys — let them through so system

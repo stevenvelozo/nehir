@@ -18,6 +18,7 @@ struct ShellConfig: Sendable, Equatable {
     var greeting: String
     var panel: PanelConfig
     var deck: DeckConfig
+    var terminal: TerminalConfig
     var overlays: [OverlayBinding]
     var custom: [String: String]
 
@@ -26,9 +27,28 @@ struct ShellConfig: Sendable, Equatable {
         greeting: "Nehir shell online",
         panel: .fallback,
         deck: .fallback,
+        terminal: .fallback,
         overlays: [],
         custom: [:]
     )
+}
+
+/// Appearance for the Deck's inherent terminal pane.
+struct TerminalConfig: Sendable, Equatable {
+    /// Point size of the terminal font.
+    var fontSize: Double
+    /// Font family name; empty uses the system monospaced font.
+    var fontFamily: String
+    /// Background opacity, 0…1 (1 = fully opaque). Lets the desktop show through.
+    var opacity: Double
+    /// Corner radius of the pane, in points.
+    var cornerRadius: Double
+    /// Margin (points) around the terminal-active OSD assembly on the screen edges.
+    var margin: Double
+    /// Inner padding (points) between the terminal text and the pane edge.
+    var padding: Double
+
+    static let fallback = TerminalConfig(fontSize: 13, fontFamily: "", opacity: 1.0, cornerRadius: 12, margin: 72, padding: 10)
 }
 
 /// Configuration for the Control Deck — the chord-driven window-management HUD.
@@ -88,6 +108,15 @@ private struct ShellConfigFile: Decodable {
         var grid: String?
     }
 
+    struct Terminal: Decodable {
+        var fontSize: Double?
+        var fontFamily: String?
+        var opacity: Double?
+        var cornerRadius: Double?
+        var margin: Double?
+        var padding: Double?
+    }
+
     struct Overlay: Decodable {
         var id: String?
         var hotkey: String?
@@ -98,6 +127,7 @@ private struct ShellConfigFile: Decodable {
     var shell: Shell?
     var panel: Panel?
     var deck: Deck?
+    var terminal: Terminal?
     var overlay: [Overlay]?
     var custom: [String: String]?
 }
@@ -139,6 +169,7 @@ enum ShellConfigLoader {
             if let greeting = parsed.shell?.greeting { result.greeting = greeting }
             mergePanel(parsed.panel, into: &result.panel)
             mergeDeck(parsed.deck, into: &result.deck)
+            mergeTerminal(parsed.terminal, into: &result.terminal)
             mergeOverlays(parsed.overlay, into: &result.overlays)
             if let custom = parsed.custom {
                 result.custom.merge(custom) { _, latest in latest }
@@ -163,6 +194,16 @@ enum ShellConfigLoader {
             result.gridColumns = dimensions.columns
             result.gridRows = dimensions.rows
         }
+    }
+
+    private static func mergeTerminal(_ terminal: ShellConfigFile.Terminal?, into result: inout TerminalConfig) {
+        guard let terminal else { return }
+        if let fontSize = terminal.fontSize { result.fontSize = fontSize }
+        if let fontFamily = terminal.fontFamily { result.fontFamily = fontFamily }
+        if let opacity = terminal.opacity { result.opacity = opacity }
+        if let cornerRadius = terminal.cornerRadius { result.cornerRadius = cornerRadius }
+        if let margin = terminal.margin { result.margin = margin }
+        if let padding = terminal.padding { result.padding = padding }
     }
 
     /// Accumulate `[[overlay]]` tables across files. A later file binding the same
@@ -239,6 +280,21 @@ enum ShellConfigLoader {
         hotkey = "cmd+d"
         # Resize-grid dimensions (columns x rows) you drag on in the Resize submode.
         grid = "8x5"
+
+        [terminal]
+        # The Deck's inherent terminal pane (⌘D then backtick). Changes apply to the
+        # next session — ⌘W to close it, then summon again (or restart Nehir).
+        fontSize = 13
+        # Font family; empty uses the system monospaced font. e.g. "Menlo", "SF Mono".
+        fontFamily = ""
+        # Background opacity 0..1 (1 = opaque). Lower it to see the desktop through it.
+        opacity = 1.0
+        # Corner radius of the pane, in points.
+        cornerRadius = 12
+        # Margin (points) around the terminal-active OSD on the screen edges.
+        margin = 72
+        # Inner padding (points) between the terminal text and the pane edge.
+        padding = 10
 
         # Overlays: pict-driven native popups summoned by a hotkey. The overlay's
         # provider (WHAT to show) lives in a small script under
