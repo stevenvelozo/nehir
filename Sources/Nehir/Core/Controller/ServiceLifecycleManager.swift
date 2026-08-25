@@ -106,6 +106,10 @@ final class ServiceLifecycleManager {
                 source: .focusedWindowChanged
             )
         }
+        // TEMPORARY DIAGNOSTIC (same-pid window-switch reveal): observe-only main-window logger.
+        AppAXContext.onMainWindowChangedDiagnostic = { [weak controller] pid in
+            controller?.axEventHandler.recordMainWindowChangedDiagnostic(pid: pid)
+        }
         setupWorkspaceObservation()
         controller.mouseEventHandler.setup()
         controller.syncMouseWarpPolicy()

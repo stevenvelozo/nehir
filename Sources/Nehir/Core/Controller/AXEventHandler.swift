@@ -10251,6 +10251,31 @@ final class AXEventHandler: CGSEventDelegate {
         return try? AXWindowRef(element: axElement)
     }
 
+    // TEMPORARY DIAGNOSTIC (same-pid window-switch reveal): observe-only. Logs whether a
+    // main-window-changed AX notification fired for `pid` and which window kAXMainWindow
+    // resolves to, alongside the focused/confirmed tokens, into the runtime trace the user
+    // captures (## Mouse focus trace). Never mutates focus/activation. Remove with the paired
+    // AppAXContext.onMainWindowChangedDiagnostic hook and its subscription.
+    func recordMainWindowChangedDiagnostic(pid: pid_t) {
+        let appElement = AXUIElementCreateApplication(pid)
+        var mainWindow: CFTypeRef?
+        let readResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindow)
+        var mainWindowId = "nil"
+        if readResult == .success,
+           let mainWindow,
+           CFGetTypeID(mainWindow) == AXUIElementGetTypeID() {
+            let axElement = unsafeDowncast(mainWindow, to: AXUIElement.self)
+            if let ref = try? AXWindowRef(element: axElement) {
+                mainWindowId = String(ref.windowId)
+            }
+        }
+        let focused = focusedWindowToken(for: pid).map(String.init(describing:)) ?? "nil"
+        let confirmed = controller?.workspaceManager.confirmedManagedFocusToken.map(String.init(describing:)) ?? "nil"
+        controller?.diagnostics.recordRuntimeMouseTrace(
+            "DIAG_MAIN_WINDOW_CHANGED pid=\(pid) axMainWindowId=\(mainWindowId) axFocusedToken=\(focused) confirmedFocus=\(confirmed)"
+        )
+    }
+
     private func resolveBundleId(_ pid: pid_t) -> String? {
         guard let controller else { return nil }
         if let bundleIdProvider {

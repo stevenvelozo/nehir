@@ -119,6 +119,9 @@ final class AppAXContext {
     // the symmetric counterpart of onWindowMiniaturized, so the layout can re-tile it.
     @MainActor static var onWindowDeminiaturized: ((pid_t, Int) -> Void)?
     @MainActor static var onFocusedWindowChanged: ((pid_t) -> Void)?
+    // TEMPORARY DIAGNOSTIC (same-pid window-switch reveal): observe-only main-window-changed
+    // hook. Fires alongside (never instead of) focus handling. Remove with the paired changes.
+    @MainActor static var onMainWindowChangedDiagnostic: ((pid_t) -> Void)?
 
     /// Bounded ring of every AX notification the per-app observers deliver,
     /// captured before the destroy/miniaturize filter. Diagnostic only — see
@@ -229,6 +232,16 @@ final class AppAXContext {
                             focusObs,
                             axApp,
                             kAXFocusedWindowChangedNotification as CFString,
+                            nil
+                        )
+                        // TEMPORARY DIAGNOSTIC (same-pid window-switch reveal): also observe
+                        // main-window changes to learn whether apps like Chrome post them for
+                        // same-process window switches. Observe-only — logged, never acted on.
+                        // Remove with the paired hook once the signal question is answered.
+                        AXObserverAddNotification(
+                            focusObs,
+                            axApp,
+                            kAXMainWindowChangedNotification as CFString,
                             nil
                         )
                         CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(focusObs), .defaultMode)
@@ -1017,6 +1030,15 @@ private func axFocusedWindowChangedCallback(
     // Focus observer carries no refcon, so windowId is unavailable without an
     // extra AX attribute read; record pid + name for diagnostic timing.
     AppAXContext.recordRawNotification(name: notificationName, pid: pid, windowId: nil)
+
+    // TEMPORARY DIAGNOSTIC (same-pid window-switch reveal): route main-window-changed to an
+    // observe-only hook. Does NOT touch focus/activation. Remove with the paired subscription.
+    if notificationName == (kAXMainWindowChangedNotification as String) {
+        scheduleOnMainRunLoop {
+            AppAXContext.onMainWindowChangedDiagnostic?(pid)
+        }
+        return
+    }
 
     guard notificationName == (kAXFocusedWindowChangedNotification as String) else { return }
 
