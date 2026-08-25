@@ -139,7 +139,6 @@ final class OverlayTerminalController: NSObject, @preconcurrency LocalProcessTer
         // not dismiss itself on focus loss. ⌘W ends the session; Esc is left to the
         // terminal (fzf/vim) since the panel only claims ⌘W as a key equivalent.
         panel.onCommandW = { [weak self] in self?.close() }
-        panel.onResignKey = { [weak self] in self?.onYieldFocus() }
         panel.setFrame(frame, display: true)
 
         self.panel = panel

@@ -385,6 +385,9 @@ final class ControlDeckController: NSObject {
         OwnedWindowRegistry.shared.unregister(panel)
         panel.orderOut(nil)
         model.reset()
+        // Defensive: guarantee no key tap survives a hide, so keyboard input is never
+        // stranded even if teardown re-entered and armed one.
+        removeKeyTap()
     }
 
     /// Backtick focuses the inherent terminal pane for typing, suspending the Deck's
@@ -395,20 +398,15 @@ final class ControlDeckController: NSObject {
         // band, list re-anchors to the Deck's right), then place the focused
         // terminal in the top band and hand keystrokes to it.
         overlays?.markInherentTerminalActive()
-        overlays?.onInherentTerminalYieldedFocus = { [weak self] in self?.reclaimDeckKeyControl() }
+        // ⌘W in the terminal cleanly dismisses the whole OSD. We deliberately do NOT
+        // re-arm the key tap when the terminal yields focus: a tap left armed after the
+        // terminal is gone stranded all keyboard input. ⌘D also hides the OSD, and
+        // reopening restores chord capture from a clean state.
+        overlays?.onInherentTerminalYieldedFocus = { [weak self] in self?.hide() }
         resizeAndCenter()
         presentColumnBadges()
         overlays?.focusInherentTerminal(frame: inherentTerminalPaneFrame())
         removeKeyTap()
-    }
-
-    /// When the terminal yields focus (⌘W, or click / Cmd-Tab away) while the OSD is
-    /// still up, re-arm the Deck's key tap so chords and Esc work again instead of
-    /// leaving the OSD visible but uninteractive.
-    private func reclaimDeckKeyControl() {
-        guard panel.isVisible else { return }
-        removeKeyTap()
-        installKeyTap()
     }
 
     /// The frame for the inherent terminal pane: the top band of the screen, above
@@ -616,6 +614,10 @@ final class ControlDeckController: NSObject {
     // refreshes apply). Recognized Deck keys are consumed; everything else passes
     // through. Requires Accessibility trust, which the WM already has.
     private func installKeyTap() {
+        // Idempotent: tear down any existing tap first so we never orphan one in the
+        // run loop. An orphaned tap keeps eating keys after removeKeyTap() clears only
+        // the latest reference — which stranded all global keyboard input.
+        removeKeyTap()
         let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         let callback: CGEventTapCallBack = { _, type, event, userInfo in
             guard let userInfo else { return Unmanaged.passUnretained(event) }
