@@ -3,6 +3,14 @@
     <channel>
         <title>Nehir</title>
         <item>
+            <title>1.7.1</title>
+            <pubDate>Tue, 25 Aug 2026 13:47:57 -0700</pubDate>
+            <sparkle:version>1.7.1</sparkle:version>
+            <sparkle:shortVersionString>1.7.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/stevenvelozo/nehir/releases/download/v1.7.1/Nehir-1.7.1.zip" length="21010628" type="application/octet-stream" sparkle:edSignature="S6enogm3xEwLa7DVyBB4+NbXwWzIJ/pc5Oa2/3t/X2da0ZdLseaqqBEIKrSqm5vmPo79f2VIaXG5kEh6trCQDg=="/>
+        </item>
+        <item>
             <title>1.6.0</title>
             <pubDate>Thu, 20 Aug 2026 16:04:12 -0700</pubDate>
             <sparkle:version>1.6.0</sparkle:version>
@@ -17,14 +25,6 @@
             <sparkle:shortVersionString>1.5.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/stevenvelozo/nehir/releases/download/v1.5.0/Nehir-1.5.0.zip" length="20828785" type="application/octet-stream" sparkle:edSignature="7y1fIOSTijxfCwlCDxmxj7zZuoVpPGxEoq41GVzXe4ojw3vDSNpzE3GSepsQ3x6YLzKApLhDf+ctlpelfJ+dAA=="/>
-        </item>
-        <item>
-            <title>1.4.0</title>
-            <pubDate>Wed, 19 Aug 2026 16:55:40 -0700</pubDate>
-            <sparkle:version>1.4.0</sparkle:version>
-            <sparkle:shortVersionString>1.4.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/stevenvelozo/nehir/releases/download/v1.4.0/Nehir-1.4.0.zip" length="20752183" type="application/octet-stream" sparkle:edSignature="a/UWNG4nMhT32wAY4l17hzKiqJszz5WfM9MMn/37vY2aLBfp9rVJUxNWNyhWVBkXJuumA8vHM0l2o8J8Yxt1CA=="/>
         </item>
     </channel>
 </rss>
