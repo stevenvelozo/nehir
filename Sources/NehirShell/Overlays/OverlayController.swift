@@ -520,8 +520,10 @@ final class OverlayController {
         dismiss: { on: ["esc", "clickAway", "retrigger"] }
       };
     });
-    shell.overlay.osd("tools", { group: "Extensions", key: "x", label: "Tools" }, function () { return "Command builder"; });
     """
+    // The Tools builder stays registered (reachable as the Commandlets palette's Builder
+    // row via showOverlay("tools")); its old root `x` chord is gone — `x` now opens the
+    // native Commandlets mode.
 
     /// The built-in "settings" overlay: the pict-section-form settings editor,
     /// opened from the menu-bar status item's right-click menu. Not bound to a Deck
@@ -548,6 +550,10 @@ final class OverlayController {
             sendCurrentTerminalSettings()
         case "fontsGet":
             sendAvailableFonts()
+        case "themeGet":
+            sendActiveThemeHash()
+        case "themeSet":
+            if let id = body["id"] as? String { applyThemeSelection(id) }
         case "settingsSet":
             applyTerminalSettings(from: body["values"])
         case "overlayClose":
@@ -609,6 +615,20 @@ final class OverlayController {
     /// The terminal-active OSD edge margin (points), read by the Deck layout.
     var terminalEdgeMargin: CGFloat { CGFloat(terminalController.appearance.margin) }
 
+    /// The terminal pane's desired height in points, derived from the configured row count
+    /// and font metrics — the single source of truth both the backtick-focus and the
+    /// commandlet-run paths use, so the terminal is the same height however it's summoned.
+    var terminalPaneHeight: CGFloat {
+        let appearance = terminalController.appearance
+        let size = CGFloat(max(6, appearance.fontSize))
+        let font: NSFont = (!appearance.fontFamily.isEmpty ? NSFont(name: appearance.fontFamily, size: size) : nil)
+            ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+        let lineHeight = max(ceil(font.ascender - font.descender + font.leading), ceil(size * 1.1))
+        let rows = CGFloat(max(4, appearance.rows))
+        let padding = CGFloat(max(0, appearance.padding))
+        return rows * lineHeight + 2 * padding
+    }
+
     /// Answer a `settingsGet` from the settings form by pushing the live terminal
     /// config into it (the page calls `window.applyHostSettings` with these values).
     private func sendCurrentTerminalSettings() {
@@ -617,7 +637,7 @@ final class OverlayController {
         let family = appearance.fontFamily
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        let json = "{\"fontSize\":\(appearance.fontSize),\"fontFamily\":\"\(family)\",\"opacity\":\(appearance.opacity),\"cornerRadius\":\(appearance.cornerRadius),\"margin\":\(appearance.margin),\"padding\":\(appearance.padding)}"
+        let json = "{\"fontSize\":\(appearance.fontSize),\"fontFamily\":\"\(family)\",\"opacity\":\(appearance.opacity),\"cornerRadius\":\(appearance.cornerRadius),\"margin\":\(appearance.margin),\"padding\":\(appearance.padding),\"rows\":\(appearance.rows)}"
         webView.evaluateJavaScript("window.applyHostSettings && window.applyHostSettings(\(json));", completionHandler: nil)
     }
 
@@ -638,6 +658,34 @@ final class OverlayController {
         webView.evaluateJavaScript("window.applyHostFonts && window.applyHostFonts(\(jsonArray));", completionHandler: nil)
     }
 
+    /// Quote a string as a JS string literal (escaping the characters that matter for the
+    /// small payloads we inject: backslash, quote, newline, carriage return).
+    private func jsString(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "")
+        return "\"\(escaped)\""
+    }
+
+    /// Push the persisted active theme hash into every open overlay, so a switch (or a
+    /// fresh open) converges them all on one pict theme. No-op until one is chosen — the
+    /// pict provider then keeps its own catalog default.
+    private func sendActiveThemeHash() {
+        guard let hash = ThemeStore.activeThemeID() else { return }
+        for webView in webViews.values {
+            webView.evaluateJavaScript("window.applyHostThemeHash && window.applyHostThemeHash(\(jsString(hash)));", completionHandler: nil)
+        }
+    }
+
+    /// Persist a theme pick (a pict-section-theme hash, posted by the picker) and broadcast
+    /// it so every open overlay converges on it.
+    private func applyThemeSelection(_ id: String) {
+        ThemeStore.setActiveThemeID(id)
+        sendActiveThemeHash()
+    }
+
     /// Apply settings posted by the settings form: update the live appearance (so the
     /// next terminal summon and the OSD layout pick them up) and persist them to a
     /// managed shell.d fragment.
@@ -650,6 +698,7 @@ final class OverlayController {
         if let cornerRadius = doubleValue(values["cornerRadius"]) { config.cornerRadius = cornerRadius }
         if let margin = doubleValue(values["margin"]) { config.margin = margin }
         if let padding = doubleValue(values["padding"]) { config.padding = padding }
+        if let rows = doubleValue(values["rows"]) { config.rows = max(4, Int(rows)) }
         terminalController.appearance = config
         terminalController.applyAppearanceLive()
         writeTerminalSettingsFragment(config)
@@ -691,6 +740,7 @@ final class OverlayController {
         cornerRadius = \(config.cornerRadius)
         margin = \(config.margin)
         padding = \(config.padding)
+        rows = \(config.rows)
         """
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? Data(toml.utf8).write(to: file)
@@ -725,6 +775,30 @@ final class OverlayController {
         activateInherentTerminal()
         terminalController.showPeek(frame: frame)
         terminalController.focus()
+    }
+
+    /// Run (or load) a commandlet in the inherent terminal. The Deck palette reveals
+    /// its pane before calling; if no warm session is up (e.g. a standalone invocation),
+    /// summon one centered so the run is visible. `load` writes the line and leaves the
+    /// cursor for editing; otherwise the line runs (Enter).
+    func runCommandlet(_ commandlet: Commandlet, load: Bool) {
+        activateInherentTerminal()
+        if !terminalController.isRunning {
+            terminalController.showPeek(frame: terminalFrame())
+        }
+        // No focus() here: run keeps the terminal a non-key peek so the palette stays
+        // interactive; load is focused by its caller (enterInherentTerminal) so edits land.
+        if load {
+            terminalController.send(commandlet.runLine)
+        } else {
+            terminalController.sendLine(commandlet.runLine)
+        }
+    }
+
+    /// The inherent terminal's current working directory, for defaulting a slot's
+    /// pinned folder to wherever the terminal is sitting. Nil when no session is up.
+    func currentTerminalDirectory() -> String? {
+        terminalController.currentWorkingDirectory
     }
 
     /// Mark the terminal active (re-presented with the OSD) and wire session-end to

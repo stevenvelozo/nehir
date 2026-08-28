@@ -4,26 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nehir Terminal Settings</title>
-<style>
-  body { font: 14px -apple-system, system-ui, sans-serif; margin: 0; padding: 20px; background: #1e1e1e; color: #eee; }
-  h1 { font-size: 15px; font-weight: 600; margin: 0 0 14px; }
-  #NehirSettingsForm { max-width: 560px; }
-  .pict-input, input, select { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; }
-  label { display: block; margin: 6px 0 2px; color: #bbb; font-size: 12px; }
-  .actions { margin-top: 18px; }
-  button { background: #2E7D74; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
-  button.secondary { background: #3a3a3a; }
-  #debug { margin-top: 16px; font: 11px ui-monospace, monospace; color: #888; white-space: pre-wrap; }
-</style>
+<link rel="stylesheet" href="./overlay-base.css">
+<!-- Pict injects every view/section's CSS cascade (form, theme picker, modal dropdown)
+     into this element (Pict-CSS.js CSSElementAddress '#PICT-CSS'). Without it, none of
+     pict's own styling reaches the DOM. -->
+<style id="PICT-CSS"></style>
 <script src="./pict.min.js"></script>
 <script src="./pict-section-form.min.js"></script>
+<script src="./pict-section-theme.min.js"></script>
+<script src="./pict-section-modal.min.js"></script>
 </head>
-<body>
+<body class="pict-modal-root">
 <h1>Terminal Settings</h1>
+<div class="nehir-subtitle">Appearance of the Deck's inherent terminal, plus the theme shared across every nehir panel.</div>
+
 <div id="Pict-Form-Container"></div>
-<div class="actions">
-  <button onclick="_Pict.PictApplication.saveSettings()">Save</button>
-  <button class="secondary" onclick="_Pict.PictApplication.closeSettings()">Close</button>
+
+<label style="margin-top: 20px;">Theme</label>
+<div id="Theme-Picker"></div>
+<div class="nehir-actions">
+  <button class="nehir-btn" onclick="_Pict.PictApplication.saveSettings()">Save</button>
+  <button class="nehir-btn secondary" onclick="_Pict.PictApplication.closeSettings()">Close</button>
 </div>
 
 <script>
@@ -50,12 +51,13 @@ var NEHIR_TERMINAL_MANIFEST =
     "Terminal.opacity":      { "Name": "Opacity (0-1)",    "Hash": "opacity",      "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 1, "Width": 6, "InputType": "Number" } },
     "Terminal.cornerRadius": { "Name": "Corner radius (pt)","Hash": "cornerRadius", "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 1, "Width": 6, "InputType": "Number" } },
     "Terminal.margin":       { "Name": "Edge margin (pt)", "Hash": "margin",       "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 2, "Width": 6, "InputType": "Number" } },
-    "Terminal.padding":      { "Name": "Inner padding (pt)","Hash": "padding",      "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 3, "Width": 6, "InputType": "Number" } }
+    "Terminal.padding":      { "Name": "Inner padding (pt)","Hash": "padding",      "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 3, "Width": 6, "InputType": "Number" } },
+    "Terminal.rows":         { "Name": "Height (lines)",    "Hash": "rows",         "DataType": "Number", "PictForm": { "Section": "Appearance", "Group": "Look", "Row": 4, "Width": 6, "InputType": "Number" } }
   }
 };
 
 // Current values are injected by the host (nehir) before load; fall back to defaults.
-var NEHIR_TERMINAL_DEFAULTS = { fontSize: 13, fontFamily: "", opacity: 1.0, cornerRadius: 12, margin: 72, padding: 10 };
+var NEHIR_TERMINAL_DEFAULTS = { fontSize: 13, fontFamily: "", opacity: 1.0, cornerRadius: 12, margin: 72, padding: 10, rows: 24 };
 
 function nehirDebug(pMessage)
 {
@@ -78,15 +80,64 @@ window.NehirTerminalSettings = class extends PictSectionForm.PictFormApplication
     // AutoRender does not fire through safeLoadPictApplication, so render the form now.
     if (this.pict.views.PictFormMetacontroller) { this.pict.views.PictFormMetacontroller.render(); }
     nehirDebug('form rendered');
-    // Ask the host for the installed fonts (populates the dropdown), then the live
-    // config. Fonts first so the saved font's option exists before it is selected.
+    this.wireThemeSection();
+    // Ask the host for installed fonts, the live terminal config, and the persisted active
+    // theme hash (applied via pict's provider, which the wiring above put in place).
     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehir)
     {
       var bridge = window.webkit.messageHandlers.nehir;
       bridge.postMessage({ action: 'fontsGet' });
       bridge.postMessage({ action: 'settingsGet' });
+      bridge.postMessage({ action: 'themeGet' });
     }
     return super.onAfterInitializeAsync ? super.onAfterInitializeAsync(fCallback) : fCallback();
+  }
+
+  // Wire pict's theme system (pict-section-theme): the Theme provider, its 44-theme
+  // catalog, and the Theme-Picker view. Persistence is off — nehir (Swift) owns the active
+  // theme so it is shared across every overlay and survives restarts; a user pick posts the
+  // chosen hash back through the bridge.
+  wireThemeSection()
+  {
+    try
+    {
+      if (!window.PictSectionTheme) { nehirDebug('pict-section-theme bundle missing'); return; }
+      // The theme picker opens its dropdown through pict-section-modal — register it first.
+      if (window.PictSectionModal && !this.pict.views['Pict-Section-Modal'])
+      {
+        this.pict.addView('Pict-Section-Modal', window.PictSectionModal.default_configuration, window.PictSectionModal);
+      }
+      if (!this.pict.providers.Theme)
+      {
+        this.pict.addProvider('Theme-Section', { Persistence: false }, window.PictSectionTheme);
+      }
+      var provider = this.pict.providers.Theme;
+      if (provider && typeof provider.onApply === 'function')
+      {
+        provider.onApply(function (pBundle)
+        {
+          // A host-driven apply (Swift broadcast / initial load) must not echo back, or the
+          // picker↔Swift round-trip ping-pongs forever. Only user picks post themeSet.
+          if (window._nehirApplyingHostTheme) { return; }
+          var hash = pBundle && (pBundle.Hash || pBundle.hash);
+          if (hash && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehir)
+          {
+            window.webkit.messageHandlers.nehir.postMessage({ action: 'themeSet', id: hash });
+          }
+        });
+      }
+      if (this.pict.views['Theme-Picker']) { this.pict.views['Theme-Picker'].render(); }
+      // The modal carries the dropdown popover's CSS but never renders itself
+      // (Renderables: []), so nothing triggers a cascade injection after it registers.
+      // Force the whole registered CSS cascade into the DOM now, or the theme menu shows
+      // unstyled and unpositioned (dumped at the page bottom).
+      if (this.pict.CSSMap && typeof this.pict.CSSMap.injectCSS === 'function')
+      {
+        this.pict.CSSMap.injectCSS(true);
+      }
+      nehirDebug('theme section wired');
+    }
+    catch (pError) { nehirDebug('wireThemeSection error: ' + pError); }
   }
 
   // Pull the current form values out of the rendered inputs into AppData, coerced
@@ -106,7 +157,8 @@ window.NehirTerminalSettings = class extends PictSectionForm.PictFormApplication
       opacity:      num(raw.opacity, NEHIR_TERMINAL_DEFAULTS.opacity),
       cornerRadius: num(raw.cornerRadius, NEHIR_TERMINAL_DEFAULTS.cornerRadius),
       margin:       num(raw.margin, NEHIR_TERMINAL_DEFAULTS.margin),
-      padding:      num(raw.padding, NEHIR_TERMINAL_DEFAULTS.padding)
+      padding:      num(raw.padding, NEHIR_TERMINAL_DEFAULTS.padding),
+      rows:         num(raw.rows, NEHIR_TERMINAL_DEFAULTS.rows)
     };
   }
 
@@ -177,6 +229,27 @@ window.applyHostSettings = function(values)
     nehirDebug('applied host settings ' + JSON.stringify(app.pict.AppData.Terminal));
   }
   catch (pError) { nehirDebug('applyHostSettings error: ' + pError); }
+};
+
+// --- Theme bridge ---
+// The host sends the persisted active theme hash; apply it through pict's provider so
+// every overlay converges on one theme and it survives restarts. overlay-base.css reads
+// the --theme-color-* variables the provider injects.
+window.applyHostThemeHash = function(pHash)
+{
+  try
+  {
+    var provider = _Pict && _Pict.providers && _Pict.providers.Theme;
+    if (provider && pHash && typeof provider.applyTheme === 'function')
+    {
+      // Flag the apply as host-driven so the onApply listener above does NOT post it back
+      // to Swift — otherwise the picker↔Swift round-trip ping-pongs on every load/switch.
+      window._nehirApplyingHostTheme = true;
+      provider.applyTheme(pHash);
+      window._nehirApplyingHostTheme = false;
+    }
+  }
+  catch (pError) { window._nehirApplyingHostTheme = false; nehirDebug('applyHostThemeHash error: ' + pError); }
 };
 
 Pict.safeOnDocumentReady(function()

@@ -23,6 +23,7 @@ enum DeckCatalog {
         case .display: display
         case .layout: layout
         case .internals: internals
+        case .commandlets: commandlets
         }
     }
 
@@ -35,6 +36,30 @@ enum DeckCatalog {
     /// The Advanced Internals pane: per-window engine runtime state (resize floors, cached
     /// constraints, manual overrides) with anomalies highlighted and per-row reset.
     static let internals = DeckMode(id: .internals, title: "Advanced internals", actions: [])
+
+    /// The Commandlets runner palette: numbered slots (1…9) are supplied live by the
+    /// model (`commandletSlots`) — a digit runs a slot, ⌥digit loads it. The two static
+    /// rows below open the manager and the command builder.
+    static let commandlets = DeckMode(
+        id: .commandlets,
+        title: "Commandlets",
+        actions: [
+            DeckAction(
+                key: .character("m"),
+                keyLabel: "M",
+                title: "Manage…",
+                symbol: "slider.horizontal.3",
+                kind: .showOverlay("commandlets")
+            ),
+            DeckAction(
+                key: .character("b"),
+                keyLabel: "B",
+                title: "Builder",
+                symbol: "hammer",
+                kind: .showOverlay("tools")
+            ),
+        ]
+    )
 
     /// The drill-in lists. Rows are supplied live by the model (`pickItems`), not static
     /// here; digit keys select, driven by those rows.
@@ -166,6 +191,16 @@ enum DeckCatalog {
                 title: "Advanced internals",
                 symbol: "gauge.with.dots.needle.bottom.50percent",
                 kind: .enterMode(.internals)
+            ),
+            // Commandlets runner palette: numbered slots run/load saved commands in the
+            // inherent terminal. (`x` was the Tools builder chord; the builder now lives
+            // one keystroke in, as the palette's Builder row.)
+            DeckAction(
+                key: .character("x"),
+                keyLabel: "X",
+                title: "Commandlets",
+                symbol: "terminal",
+                kind: .enterMode(.commandlets)
             ),
             // Touch/click entry to the Columns drill-in (number + window title list).
             // The digit bindings below stay bound at root too, so `⌘D → 1` still jumps

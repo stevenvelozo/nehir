@@ -28,6 +28,9 @@ enum DeckKey: Equatable, Sendable {
     case enter
     /// ⌘+digit (1…9, 0) while the Deck is open — "send window to ordinal N".
     case commandDigit(Int)
+    /// ⌥+digit (1…9) while the Deck is open — "load" a commandlet slot (write the
+    /// line but leave the cursor), as opposed to a bare digit which runs it.
+    case optionDigit(Int)
 }
 
 /// A cell in the resize grid (0-based column/row), shared by keyboard and mouse.
@@ -83,6 +86,7 @@ enum DeckModeID: Equatable {
     case display
     case layout
     case internals
+    case commandlets
 }
 
 /// The window chosen in the Configure flow, carried into the edit screen.

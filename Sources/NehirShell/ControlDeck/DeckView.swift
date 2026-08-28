@@ -44,6 +44,8 @@ struct DeckView: View {
             DeckLayoutView(model: model)
         case .internals:
             DeckInternalsView(model: model)
+        case .commandlets:
+            commandletList
         case .root:
             rootLayout
         default:
@@ -63,68 +65,24 @@ struct DeckView: View {
             if !moveActions.isEmpty { labeledRow("Move", moveActions) }
             if !layoutActions.isEmpty { labeledRow("Layout", layoutActions) }
             if !windowActions.isEmpty { labeledRow("Window", windowActions) }
-            ForEach(extensionGroups, id: \.name) { group in
-                extensionRow(group.name, group.actions)
-            }
+            if !shellActions.isEmpty { labeledRow("Shell", shellActions) }
         }
         .frame(width: 320, alignment: .leading)
     }
 
-    /// Registered pict-extension entries, grouped by their `group` label. Headless
-    /// entries dispatch by key but draw no tile, so they're excluded here.
-    private var extensionGroups: [(name: String, actions: [DeckAction])] {
-        let entries = model.mode.actions.filter { action in
+    /// The "Shell" grid row: the Commandlets palette plus any registered overlay
+    /// extensions (Desktop, …), rendered as square chips like the other OSD rows.
+    /// Headless entries dispatch by key but draw no tile, so they're excluded.
+    private var shellActions: [DeckAction] {
+        var actions: [DeckAction] = []
+        if let commandlets = model.mode.actions.first(where: { isEnter($0, .commandlets) }) {
+            actions.append(commandlets)
+        }
+        actions.append(contentsOf: model.mode.actions.filter { action in
             if case .showOverlay = action.kind { return !action.isHeadless }
             return false
-        }
-        return Dictionary(grouping: entries, by: { $0.group ?? "Extensions" })
-            .sorted { $0.key < $1.key }
-            .map { (name: $0.key, actions: $0.value) }
-    }
-
-    private func extensionRow(_ label: String, _ actions: [DeckAction]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.tertiary)
-            HStack(spacing: 8) {
-                ForEach(actions) { extensionChip($0) }
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(.top, 2)
-    }
-
-    /// A wide chip for an extension: key on the left, name + optional live status.
-    private func extensionChip(_ action: DeckAction) -> some View {
-        Button {
-            model.activate(action)
-        } label: {
-            HStack(spacing: 8) {
-                Text(action.keyLabel)
-                    .font(.system(.caption2, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(action.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                    if let subtitle = action.subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 38)
-            .frame(maxWidth: 150)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.quaternary))
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        }
-        .buttonStyle(.plain)
+        })
+        return actions
     }
 
     private func labeledRow(_ label: String, _ actions: [DeckAction]) -> some View {
@@ -169,6 +127,29 @@ struct DeckView: View {
 
     private func pickRow(_ item: DeckPickItem) -> some View {
         numberedRow(item.label, item.title) { model.activatePick(item) }
+    }
+
+    /// The Commandlets runner palette: the bound 1…9 slots (tap or digit runs them),
+    /// then the Manage / Builder rows. Running keeps the OSD up so the terminal's output
+    /// stays visible, so slot rows call their run closure directly rather than the
+    /// Deck-closing `activatePick`.
+    private var commandletList: some View {
+        VStack(spacing: 5) {
+            if model.commandletSlots.isEmpty {
+                Text("No commandlets yet — press M to add one")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(model.commandletSlots) { slot in
+                    numberedRow(slot.label, slot.title) { slot.activate() }
+                }
+            }
+            ForEach(model.mode.actions) { action in
+                numberedRow(action.keyLabel, action.title) { model.activate(action) }
+            }
+        }
+        .frame(width: 320)
     }
 
     private var configurePickList: some View {

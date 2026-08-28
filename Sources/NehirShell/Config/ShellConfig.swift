@@ -47,8 +47,11 @@ struct TerminalConfig: Sendable, Equatable {
     var margin: Double
     /// Inner padding (points) between the terminal text and the pane edge.
     var padding: Double
+    /// Terminal height in text rows (vertical lines) — the single source of truth for the
+    /// pane height, used identically by backtick-focus and a commandlet run.
+    var rows: Int
 
-    static let fallback = TerminalConfig(fontSize: 13, fontFamily: "", opacity: 1.0, cornerRadius: 12, margin: 72, padding: 10)
+    static let fallback = TerminalConfig(fontSize: 13, fontFamily: "", opacity: 1.0, cornerRadius: 12, margin: 72, padding: 10, rows: 24)
 }
 
 /// Configuration for the Control Deck — the chord-driven window-management HUD.
@@ -115,6 +118,7 @@ private struct ShellConfigFile: Decodable {
         var cornerRadius: Double?
         var margin: Double?
         var padding: Double?
+        var rows: Int?
     }
 
     struct Overlay: Decodable {
@@ -204,6 +208,7 @@ enum ShellConfigLoader {
         if let cornerRadius = terminal.cornerRadius { result.cornerRadius = cornerRadius }
         if let margin = terminal.margin { result.margin = margin }
         if let padding = terminal.padding { result.padding = padding }
+        if let rows = terminal.rows { result.rows = rows }
     }
 
     /// Accumulate `[[overlay]]` tables across files. A later file binding the same
@@ -295,6 +300,9 @@ enum ShellConfigLoader {
         margin = 72
         # Inner padding (points) between the terminal text and the pane edge.
         padding = 10
+        # Terminal height in text rows (vertical lines) — the source of truth for the pane
+        # height, used by both backtick-focus and a commandlet run.
+        rows = 24
 
         # Overlays: pict-driven native popups summoned by a hotkey. The overlay's
         # provider (WHAT to show) lives in a small script under

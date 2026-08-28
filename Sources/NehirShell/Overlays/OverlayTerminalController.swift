@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 import AppKit
+import Darwin
 import SwiftTerm
 
 /// The Deck's persistent inherent terminal, presented as a pane in the OSD above
@@ -92,6 +93,27 @@ final class OverlayTerminalController: NSObject, @preconcurrency LocalProcessTer
     /// Type `text` into the live shell *without* running it (stage/"load").
     func send(_ text: String) {
         terminalView?.send(txt: text)
+    }
+
+    /// True when a warm shell session is live (panel built and process running).
+    var isRunning: Bool { terminalView != nil && processRunning }
+
+    /// The current working directory of the live shell, read straight from the child
+    /// process — used by the commandlet manager to default a slot's pinned folder to
+    /// wherever the terminal is sitting. Nil when no session is running.
+    var currentWorkingDirectory: String? {
+        guard let terminal = terminalView, let process = terminal.process, process.running else { return nil }
+        let pid = process.shellPid
+        guard pid > 0 else { return nil }
+        var info = proc_vnodepathinfo()
+        let expected = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        let written = withUnsafeMutablePointer(to: &info) {
+            proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, $0, expected)
+        }
+        guard written == expected else { return nil }
+        return withUnsafeBytes(of: &info.pvi_cdir.vip_path) { rawBuffer in
+            rawBuffer.baseAddress.map { String(cString: $0.assumingMemoryBound(to: CChar.self)) }
+        }
     }
 
     // MARK: - Session lifecycle

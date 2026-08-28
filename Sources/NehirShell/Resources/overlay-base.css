@@ -1,0 +1,212 @@
+/* Nehir overlay base — the shared look for every pict-form overlay (Settings,
+   Commandlets, Tools). All color/shape/type comes from CSS variables that the active
+   theme sets; the :root values below are the built-in default ("Midnight") so a page is
+   fully styled even before the host injects a theme. The host injects a <style
+   id="nehir-theme"> that overrides these for the selected theme. */
+
+:root {
+    /* Colors come from the active pict theme's --theme-color-* variables, which
+       pict-section-theme (pict-provider-theme) injects on :root. The fallbacks keep the
+       overlay fully styled before a theme has applied. The rest of this stylesheet keeps
+       referencing --nehir-*, so it inherits whichever of pict's 44 themes is active. */
+    --nehir-bg: var(--theme-color-background-primary, #16181d);
+    --nehir-surface: var(--theme-color-background-secondary, #21252e);
+    --nehir-surface-2: var(--theme-color-background-tertiary, #2b3140);
+    --nehir-border: var(--theme-color-border-default, #3a4150);
+    --nehir-text: var(--theme-color-text-primary, #e6e9ef);
+    --nehir-text-dim: var(--theme-color-text-secondary, #9aa3b2);
+    --nehir-accent: var(--theme-color-brand-primary, #4db6a4);
+    --nehir-accent-2: var(--theme-color-brand-primary, #6ea8fe);
+    --nehir-accent-text: var(--theme-color-text-on-brand, #08131a);
+    --nehir-danger: var(--theme-color-status-error, #e06c75);
+
+    /* Shape + type — local, not part of the color theme. */
+    --nehir-radius: 12px;
+    --nehir-radius-sm: 8px;
+    --nehir-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    --nehir-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --nehir-shadow: 0 12px 44px rgba(0, 0, 0, 0.45);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+    margin: 0;
+    padding: 22px 24px 26px;
+    font-family: var(--nehir-font);
+    font-size: 14px;
+    line-height: 1.4;
+    background: var(--nehir-bg);
+    color: var(--nehir-text);
+    -webkit-font-smoothing: antialiased;
+}
+
+h1 {
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: 0.2px;
+    margin: 0 0 4px;
+}
+
+.nehir-subtitle {
+    margin: 0 0 18px;
+    color: var(--nehir-text-dim);
+    font-size: 12px;
+}
+
+/* A theme picker row can sit in the header. */
+.nehir-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+.nehir-header h1 { margin: 0; }
+.nehir-theme-picker { display: flex; align-items: center; gap: 8px; }
+.nehir-theme-picker label {
+    margin: 0;
+    color: var(--nehir-text-dim);
+    text-transform: none;
+    letter-spacing: normal;
+    font-size: 12px;
+    font-weight: 500;
+}
+.nehir-theme-picker select { width: auto; min-width: 130px; }
+
+label {
+    display: block;
+    margin: 12px 0 4px;
+    color: var(--nehir-text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+input,
+select,
+textarea,
+.pict-input {
+    width: 100%;
+    background: var(--nehir-surface);
+    color: var(--nehir-text);
+    border: 1px solid var(--nehir-border);
+    border-radius: var(--nehir-radius-sm);
+    padding: 8px 10px;
+    font: inherit;
+    outline: none;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--nehir-text-dim) 75%, transparent); }
+
+input:focus,
+select:focus,
+textarea:focus,
+.pict-input:focus {
+    border-color: var(--nehir-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--nehir-accent) 28%, transparent);
+}
+
+select {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--nehir-text-dim) 50%),
+        linear-gradient(135deg, var(--nehir-text-dim) 50%, transparent 50%);
+    background-position: right 13px center, right 8px center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 26px;
+}
+
+/* Buttons are styled by class only (.nehir-btn), never the bare `button` element — pict's
+   modal / picker menus use <button> for their items, and a global rule bleeds into them. */
+.nehir-btn {
+    background: var(--nehir-accent);
+    color: var(--nehir-accent-text);
+    border: 0;
+    border-radius: var(--nehir-radius-sm);
+    padding: 9px 18px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.12s ease, transform 0.02s ease;
+}
+.nehir-btn:hover { filter: brightness(1.08); }
+.nehir-btn:active { transform: translateY(1px); }
+.nehir-btn.secondary { background: var(--nehir-surface-2); color: var(--nehir-text); }
+.nehir-btn.ghost { background: transparent; color: var(--nehir-text-dim); }
+.nehir-btn.danger { background: var(--nehir-danger); color: #fff; }
+
+.nehir-actions {
+    margin-top: 22px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* A surface card, for grouping sections of a form. */
+.nehir-card {
+    background: var(--nehir-surface);
+    border: 1px solid var(--nehir-border);
+    border-radius: var(--nehir-radius);
+    padding: 14px 16px;
+    margin-bottom: 14px;
+}
+
+/* pict-section-form breathing room: sections and groups get spacing without knowing
+   pict's exact markup — element-level styling above covers the inputs themselves. */
+[id^="Pict-Form"] { display: block; }
+[id^="Pict-Form"] > div { margin-bottom: 4px; }
+
+/* A two-column workspace layout (manager: slots | picker). */
+.nehir-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .nehir-split { grid-template-columns: 1fr; } }
+
+/* Selectable list rows (history, slots). */
+.nehir-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+.nehir-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--nehir-surface);
+    border: 1px solid transparent;
+    border-radius: var(--nehir-radius-sm);
+    cursor: pointer;
+    transition: background 0.1s ease, border-color 0.1s ease;
+}
+.nehir-row:hover { border-color: var(--nehir-border); }
+.nehir-row.selected { border-color: var(--nehir-accent); background: color-mix(in srgb, var(--nehir-accent) 12%, var(--nehir-surface)); }
+.nehir-row .mono { font-family: var(--nehir-mono); font-size: 12px; }
+.nehir-row .dim { color: var(--nehir-text-dim); font-size: 11px; }
+.nehir-slot-key {
+    flex: 0 0 auto;
+    width: 22px; height: 22px;
+    display: grid; place-items: center;
+    border-radius: 6px;
+    background: var(--nehir-surface-2);
+    color: var(--nehir-text-dim);
+    font-family: var(--nehir-mono);
+    font-weight: 600;
+    font-size: 12px;
+}
+
+/* Segmented toggle (Recent / Frequent, pinned / floating). */
+.nehir-seg { display: inline-flex; background: var(--nehir-surface-2); border-radius: var(--nehir-radius-sm); padding: 2px; gap: 2px; }
+.nehir-seg button {
+    background: transparent;
+    color: var(--nehir-text-dim);
+    padding: 5px 12px;
+    font-size: 12px;
+    border-radius: 6px;
+}
+.nehir-seg button.active { background: var(--nehir-accent); color: var(--nehir-accent-text); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--nehir-surface-2); border-radius: 6px; border: 2px solid var(--nehir-bg); }
+::-webkit-scrollbar-track { background: transparent; }

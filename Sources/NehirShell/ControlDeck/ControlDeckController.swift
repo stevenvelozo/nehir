@@ -413,15 +413,22 @@ final class ControlDeckController: NSObject {
     /// the lowered Deck bar, inset by a margin on the top and sides. The Deck bar
     /// carries the bottom margin, so the terminal + Deck assembly is inset all round.
     private func inherentTerminalPaneFrame() -> CGRect {
-        let deck = panel.frame
         let visible = screenForPresentation().visibleFrame
         let edge = osdEdge(visible)
         let gap: CGFloat = 16
         let x = visible.minX + edge
         let width = visible.width - 2 * edge
-        let bottom = deck.maxY + gap
-        let top = visible.maxY - edge
-        let height = max(160, top - bottom)
+        // Anchor above the Deck's *target* bottom position (screen + Deck height), NOT its
+        // current frame — so the height is identical whether the pane is placed before or
+        // after `resizeAndCenter` drops the Deck (the old bug: backtick moved the Deck first
+        // and got a tall pane; a commandlet run measured the Deck before the move and got a
+        // short one).
+        let bottom = visible.minY + edge + panel.frame.height + gap
+        // Row count is the source of truth for the height; clamp so it never overruns the
+        // top margin on a short screen.
+        let ceiling = (visible.maxY - edge) - bottom
+        let desired = overlays?.terminalPaneHeight ?? 320
+        let height = max(160, min(desired, ceiling))
         return CGRect(x: x, y: bottom, width: width, height: height)
     }
 
@@ -640,6 +647,16 @@ final class ControlDeckController: NSObject {
                 let handled = MainActor.assumeIsolated { controller.model.handle(key: .commandDigit(digit)) }
                 return handled ? nil : Unmanaged.passUnretained(event)
             }
+            // ⌥+digit (no other modifiers) → "load" a commandlet slot (a bare digit runs
+            // it). Resolved here like the ⌘+digit chord above, because the general resolver
+            // strips modifiers and would deliver an indistinguishable `.character` digit.
+            if flags.contains(.option),
+               flags.isDisjoint(with: [.command, .control, .shift]),
+               let digit = ControlDeckController.digit(from: nsEvent)
+            {
+                let handled = MainActor.assumeIsolated { controller.model.handle(key: .optionDigit(digit)) }
+                return handled ? nil : Unmanaged.passUnretained(event)
+            }
             // Toggle the full window list in the OSD. Bound to F1 (keyCode 0x7A) and to `i`
             // (keyCode 0x22): F1 only reaches this tap as a keyDown when "standard function
             // keys" is enabled — otherwise macOS routes it as a media/system event we never
@@ -753,6 +770,43 @@ extension ControlDeckController {
         model.cycleViewportZoom = { [weak self] in self?.viewportInsetController?.cycleZoom() }
         model.readInternalsRows = { [weak self] in self?.buildInternalsRows() ?? [] }
         model.resetInternalsWindow = { [weak self] number in self?.resetInternalsRow(number) }
+        model.readCommandletSlots = { [weak self] in self?.buildCommandletSlots() ?? [] }
+        model.runCommandletSlot = { [weak self] slot in self?.runCommandletSlot(slot) }
+        model.loadCommandletSlot = { [weak self] slot in self?.loadCommandletSlot(slot) }
+    }
+
+    // MARK: - Commandlets
+
+    /// The palette's slot rows, built from the store (only the bound 1…9 slots). Each row's
+    /// tap runs the slot, matching the digit key.
+    private func buildCommandletSlots() -> [DeckPickItem] {
+        let commandlets = CommandletStore.load()
+        return (1 ... 9).compactMap { slot -> DeckPickItem? in
+            guard let commandlet = CommandletStore.commandlet(inSlot: slot, from: commandlets) else { return nil }
+            return DeckPickItem(label: String(slot), title: commandlet.name, activate: { [weak self] in
+                self?.runCommandletSlot(slot)
+            })
+        }
+    }
+
+    /// Run a slot: reveal the inherent terminal as an OSD pane (a non-key peek), lay the OSD
+    /// out in its terminal-active arrangement, and run the command — keeping the palette up
+    /// so the output stays visible and more slots can run.
+    private func runCommandletSlot(_ slot: Int) {
+        guard let commandlet = CommandletStore.commandlet(inSlot: slot, from: CommandletStore.load()) else { return }
+        overlays?.markInherentTerminalActive()
+        overlays?.presentInherentTerminalPane(frame: inherentTerminalPaneFrame())
+        resizeAndCenter()
+        presentColumnBadges()
+        overlays?.runCommandlet(commandlet, load: false)
+    }
+
+    /// Load a slot: focus the terminal for typing (like backtick), then stage the line so
+    /// the author can edit it before pressing Enter.
+    private func loadCommandletSlot(_ slot: Int) {
+        guard let commandlet = CommandletStore.commandlet(inSlot: slot, from: CommandletStore.load()) else { return }
+        enterInherentTerminal()
+        overlays?.runCommandlet(commandlet, load: true)
     }
 
     /// Persist a configured window rule and apply it now: the forced width lands via the

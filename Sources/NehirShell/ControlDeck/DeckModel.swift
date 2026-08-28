@@ -95,6 +95,14 @@ final class DeckModel {
     var readInternalsRows: () -> [DeckInternalsRow] = { [] }
     var resetInternalsWindow: (Int) -> Void = { _ in }
 
+    /// Commandlets: the 1…9 runner slots, rebuilt each time the palette opens. `runSlot`
+    /// reveals the terminal (peek) and runs the slot; `loadSlot` focuses the terminal and
+    /// stages the line for editing. All injected by the controller.
+    private(set) var commandletSlots: [DeckPickItem] = []
+    var readCommandletSlots: () -> [DeckPickItem] = { [] }
+    var runCommandletSlot: (Int) -> Void = { _ in }
+    var loadCommandletSlot: (Int) -> Void = { _ in }
+
     /// The active global layout family, shown/selected in the Layout-engine pane.
     private(set) var layoutMode: NehirLayoutMode = .river
     var readLayoutMode: () -> NehirLayoutMode = { .river }
@@ -292,6 +300,8 @@ final class DeckModel {
         switch mode.id {
         case .resizeGrid:
             if handleResizeGrid(key: key) { return true }
+        case .commandlets:
+            if handleCommandlets(key: key) { return true }
         case .display:
             return handleDisplay(key: key)
         case .layout:
@@ -319,10 +329,10 @@ final class DeckModel {
     private func handleGlobalKey(_ key: DeckKey) -> Bool? {
         switch key {
         case .escape:
-            // Esc always dismisses the Deck outright (from any submode) — reopening with
-            // the chord is one keystroke, and a single Esc reads cleaner than back-then-close.
-            // The tappable Back chip still steps back one level via `goBack()`.
-            onClose()
+            // Esc steps back one level, matching the "esc to go back" header hint: a
+            // submode (the Commandlets quick-launch included) returns to the root OSD
+            // rather than tearing the whole Deck down; from root, Esc dismisses.
+            goBack()
             return true
         case let .commandDigit(digit):
             sendWindowToOrdinal(digit)
@@ -364,6 +374,32 @@ final class DeckModel {
     }
 
     /// Drill-in lists (Columns/Floating) are data-driven: a digit selects the matching row.
+    /// Commandlets palette: a bare digit (1…9) runs that slot, ⌥digit loads it (write the
+    /// line, leave the cursor). Non-digit keys (the Manage / Builder rows) return false so
+    /// `handle(key:)` falls through to the mode's static actions.
+    private func handleCommandlets(key: DeckKey) -> Bool {
+        switch key {
+        case let .character(character):
+            guard let slot = character.wholeNumberValue, (1 ... 9).contains(slot),
+                  commandletSlots.contains(where: { $0.label == String(slot) })
+            else { return false }
+            runCommandletSlot(slot)
+            return true
+        case let .optionDigit(slot):
+            guard (1 ... 9).contains(slot),
+                  commandletSlots.contains(where: { $0.label == String(slot) })
+            else { return false }
+            loadCommandletSlot(slot)
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Run / load a slot from a row tap (the view calls these directly).
+    func runSlot(_ slot: Int) { runCommandletSlot(slot) }
+    func loadSlot(_ slot: Int) { loadCommandletSlot(slot) }
+
     private func handleListPick(key: DeckKey) -> Bool {
         guard case let .character(character) = key,
               let item = pickItems.first(where: { $0.label == String(character) })
@@ -432,6 +468,8 @@ final class DeckModel {
             layoutMode = readLayoutMode()
         case .internals:
             internalsRows = readInternalsRows()
+        case .commandlets:
+            commandletSlots = readCommandletSlots()
         case .root:
             configureTargets = []
             configureTarget = nil
