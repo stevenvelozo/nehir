@@ -45,6 +45,9 @@ extension ControlDeckController {
         let settings = NSMenuItem(title: "Settings…", action: #selector(settingsClicked), keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
+        let commandlets = NSMenuItem(title: "Commandlets…", action: #selector(commandletsClicked), keyEquivalent: "")
+        commandlets.target = self
+        menu.addItem(commandlets)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Nehir", action: #selector(quitClicked), keyEquivalent: "")
         quit.target = self
@@ -55,6 +58,10 @@ extension ControlDeckController {
 
     @objc private func settingsClicked() {
         overlays?.show("settings")
+    }
+
+    @objc private func commandletsClicked() {
+        overlays?.show("commandlets")
     }
 
     @objc private func checkForUpdatesClicked() {

@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nehir Commandlets</title>
+<link rel="stylesheet" href="./overlay-base.css">
+<!-- Pict injects every view/section's CSS cascade here (Pict-CSS.js '#PICT-CSS'). -->
+<style id="PICT-CSS"></style>
+<script src="./pict.min.js"></script>
+<script src="./pict-section-theme.min.js"></script>
+<script src="./pict-section-modal.min.js"></script>
+<style>
+  .cm-slotname { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cm-empty { color: var(--nehir-text-dim); font-style: italic; }
+  .cm-editor { margin-top: 12px; }
+  .cm-editor textarea { min-height: 54px; font-family: var(--nehir-mono); font-size: 12px; resize: vertical; }
+  .cm-cwdrow { display: flex; gap: 8px; align-items: center; }
+  .cm-cwdrow input { flex: 1; }
+  .cm-toolbar { display: flex; gap: 8px; align-items: center; }
+  .cm-count { color: var(--nehir-text-dim); font-size: 11px; }
+</style>
+</head>
+<body class="pict-modal-root">
+<div class="nehir-header">
+  <div>
+    <h1>Commandlets</h1>
+    <div class="nehir-subtitle">Bind commands to the ⌘D → x palette. Pick one from your shell history, or type your own.</div>
+  </div>
+</div>
+
+<div class="nehir-split">
+  <div>
+    <label>Slots (⌘D → x → digit)</label>
+    <div id="cm-slots" class="nehir-list"></div>
+    <div id="cm-editor" class="cm-editor"></div>
+  </div>
+  <div>
+    <label>Shell history</label>
+    <div class="cm-toolbar" style="margin-bottom: 8px;">
+      <div class="nehir-seg">
+        <button id="cm-order-recent" class="active" onclick="NehirCM.setOrder('recent')">Recent</button>
+        <button id="cm-order-frequent" onclick="NehirCM.setOrder('frequent')">Frequent</button>
+      </div>
+      <button class="nehir-btn secondary" onclick="NehirCM.refresh()">Refresh</button>
+    </div>
+    <input type="text" placeholder="Filter history…" oninput="NehirCM.setFilter(this.value)">
+    <div id="cm-history" class="nehir-list" style="margin-top: 6px; max-height: 360px;"></div>
+  </div>
+</div>
+
+<div class="nehir-actions">
+  <button class="nehir-btn" onclick="NehirCM.save()">Save</button>
+  <button class="nehir-btn secondary" onclick="NehirCM.close()">Close</button>
+</div>
+
+<script>
+function cmBridge(pAction, pExtra)
+{
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehir)
+  {
+    var tmpMessage = { action: pAction };
+    if (pExtra) { for (var tmpKey in pExtra) { tmpMessage[tmpKey] = pExtra[tmpKey]; } }
+    window.webkit.messageHandlers.nehir.postMessage(tmpMessage);
+  }
+}
+function cmEsc(pValue)
+{
+  return String(pValue == null ? '' : pValue)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ---------------------------------------------------------------------------
+// The manager's state + rendering. A bespoke two-pane tool (slots | history)
+// styled by overlay-base.css; the host (Swift) provides the store, the shell
+// history, and the terminal's live cwd through the bridge.
+// ---------------------------------------------------------------------------
+var NehirCM =
+{
+  commandlets: [],   // [{ id, name, interpreter, body, cwd, pinnedCwd, slot }]
+  history: [],       // [{ command, count, lastUsed }]
+  historyView: [],
+  order: 'recent',
+  filter: '',
+  selected: 1,
+  terminalCwd: ''
+};
+
+NehirCM.slotFor = function (pSlot)
+{
+  return this.commandlets.filter(function (c) { return c.slot === pSlot; })[0] || null;
+};
+
+NehirCM.renderSlots = function ()
+{
+  var tmpHTML = '';
+  for (var tmpSlot = 1; tmpSlot <= 9; tmpSlot++)
+  {
+    var tmpCommandlet = this.slotFor(tmpSlot);
+    var tmpSelected = (tmpSlot === this.selected) ? ' selected' : '';
+    var tmpName = tmpCommandlet
+      ? cmEsc(tmpCommandlet.name || tmpCommandlet.body)
+      : '<span class="cm-empty">empty</span>';
+    tmpHTML += '<div class="nehir-row' + tmpSelected + '" onclick="NehirCM.select(' + tmpSlot + ')">'
+      + '<span class="nehir-slot-key">' + tmpSlot + '</span>'
+      + '<span class="cm-slotname">' + tmpName + '</span>'
+      + '</div>';
+  }
+  document.getElementById('cm-slots').innerHTML = tmpHTML;
+};
+
+NehirCM.select = function (pSlot)
+{
+  this.selected = pSlot;
+  this.renderSlots();
+  this.renderEditor();
+};
+
+NehirCM.renderEditor = function ()
+{
+  var tmpCommandlet = this.slotFor(this.selected);
+  var tmpElement = document.getElementById('cm-editor');
+  if (!tmpCommandlet)
+  {
+    tmpElement.innerHTML =
+      '<div class="cm-empty">Slot ' + this.selected + ' is empty — click a history command on the right, or add one.</div>'
+      + '<div style="margin-top: 10px;"><button class="nehir-btn secondary" onclick="NehirCM.assign(\'\')">New command…</button></div>';
+    return;
+  }
+  var tmpPinned = !!tmpCommandlet.pinnedCwd;
+  tmpElement.innerHTML =
+    '<label>Name</label>'
+    + '<input type="text" value="' + cmEsc(tmpCommandlet.name) + '" oninput="NehirCM.edit(\'name\', this.value)">'
+    + '<label>Command</label>'
+    + '<textarea oninput="NehirCM.edit(\'body\', this.value)">' + cmEsc(tmpCommandlet.body) + '</textarea>'
+    + '<label>Run in</label>'
+    + '<div class="nehir-seg" style="margin-bottom: 6px;">'
+    +   '<button class="' + (tmpPinned ? 'active' : '') + '" onclick="NehirCM.setPinned(true)">This folder</button>'
+    +   '<button class="' + (!tmpPinned ? 'active' : '') + '" onclick="NehirCM.setPinned(false)">Wherever the terminal is</button>'
+    + '</div>'
+    + (tmpPinned
+        ? '<div class="cm-cwdrow"><input type="text" value="' + cmEsc(tmpCommandlet.cwd || '') + '" oninput="NehirCM.edit(\'cwd\', this.value)" placeholder="~/Code/your-repo">'
+          + '<button class="nehir-btn secondary" onclick="NehirCM.useTerminalCwd()">Use terminal</button></div>'
+        : '')
+    + '<div style="margin-top: 12px;"><button class="nehir-btn danger" onclick="NehirCM.clear()">Clear slot</button></div>';
+};
+
+NehirCM.edit = function (pField, pValue)
+{
+  var tmpCommandlet = this.slotFor(this.selected);
+  if (!tmpCommandlet) { return; }
+  tmpCommandlet[pField] = pValue;
+  if (pField === 'name' || pField === 'body') { this.renderSlots(); }
+};
+
+NehirCM.setPinned = function (pPinned)
+{
+  var tmpCommandlet = this.slotFor(this.selected);
+  if (tmpCommandlet) { tmpCommandlet.pinnedCwd = pPinned; this.renderEditor(); }
+};
+
+NehirCM.useTerminalCwd = function ()
+{
+  var tmpCommandlet = this.slotFor(this.selected);
+  if (tmpCommandlet) { tmpCommandlet.cwd = this.terminalCwd || tmpCommandlet.cwd; this.renderEditor(); }
+};
+
+NehirCM.clear = function ()
+{
+  this.commandlets = this.commandlets.filter(function (c) { return c.slot !== NehirCM.selected; });
+  this.renderSlots();
+  this.renderEditor();
+};
+
+// Assign a command (from history or blank) to the selected slot, defaulting the pinned
+// folder to the terminal's live cwd.
+NehirCM.assign = function (pCommand)
+{
+  var tmpExisting = this.slotFor(this.selected);
+  if (tmpExisting)
+  {
+    tmpExisting.body = pCommand;
+    tmpExisting.name = pCommand;
+  }
+  else
+  {
+    this.commandlets.push({
+      id: 'slot' + this.selected + '-' + this.commandlets.length,
+      name: pCommand, interpreter: 'argv', body: pCommand,
+      cwd: this.terminalCwd || '', pinnedCwd: !!this.terminalCwd,
+      slot: this.selected
+    });
+  }
+  this.renderSlots();
+  this.renderEditor();
+};
+
+// ---- History picker ----
+NehirCM.setOrder = function (pOrder)
+{
+  this.order = pOrder;
+  document.getElementById('cm-order-recent').classList.toggle('active', pOrder === 'recent');
+  document.getElementById('cm-order-frequent').classList.toggle('active', pOrder === 'frequent');
+  this.renderHistory();
+};
+
+NehirCM.setFilter = function (pValue)
+{
+  this.filter = (pValue || '').toLowerCase();
+  this.renderHistory();
+};
+
+NehirCM.refresh = function () { cmBridge('historyRefresh'); };
+
+NehirCM.renderHistory = function ()
+{
+  var tmpItems = this.history.slice();
+  if (this.filter)
+  {
+    tmpItems = tmpItems.filter(function (h) { return h.command.toLowerCase().indexOf(NehirCM.filter) >= 0; });
+  }
+  if (this.order === 'frequent')
+  {
+    tmpItems.sort(function (a, b) { return (b.count || 0) - (a.count || 0); });
+  }
+  tmpItems = tmpItems.slice(0, 300);
+  this.historyView = tmpItems;
+
+  var tmpHTML = '';
+  tmpItems.forEach(function (h, i)
+  {
+    var tmpMeta = (NehirCM.order === 'frequent') ? ('×' + (h.count || 1)) : '';
+    tmpHTML += '<div class="nehir-row" onclick="NehirCM.pickHistory(' + i + ')">'
+      + '<span class="mono cm-slotname">' + cmEsc(h.command) + '</span>'
+      + (tmpMeta ? '<span class="dim cm-count">' + tmpMeta + '</span>' : '')
+      + '</div>';
+  });
+  document.getElementById('cm-history').innerHTML = tmpHTML || '<div class="cm-empty">No history found.</div>';
+};
+
+NehirCM.pickHistory = function (pIndex)
+{
+  var tmpEntry = this.historyView[pIndex];
+  if (tmpEntry) { this.assign(tmpEntry.command); }
+};
+
+// ---- Persist / close ----
+NehirCM.save = function ()
+{
+  cmBridge('commandletsSet', { commandlets: this.commandlets });
+  try
+  {
+    var tmpModal = _Pict && _Pict.views && _Pict.views['Pict-Section-Modal'];
+    if (tmpModal && typeof tmpModal.toast === 'function') { tmpModal.toast('Commandlets saved', { type: 'success' }); }
+  }
+  catch (pError) { /* toast is best-effort */ }
+};
+NehirCM.close = function () { cmBridge('overlayClose'); };
+
+// ---- Host bridge receivers ----
+window.applyHostCommandlets = function (pList) { NehirCM.commandlets = pList || []; NehirCM.renderSlots(); NehirCM.renderEditor(); };
+window.applyHostHistory = function (pList) { NehirCM.history = pList || []; NehirCM.renderHistory(); };
+window.applyHostTerminalCwd = function (pCwd) { NehirCM.terminalCwd = pCwd || ''; };
+window.applyHostThemeHash = function (pHash)
+{
+  try
+  {
+    var tmpProvider = _Pict && _Pict.providers && _Pict.providers.Theme;
+    if (tmpProvider && pHash && typeof tmpProvider.applyTheme === 'function') { tmpProvider.applyTheme(pHash); }
+  }
+  catch (pError) { /* ignore */ }
+};
+
+// ---------------------------------------------------------------------------
+// A minimal pict app, only to bring in the theme provider (so overlay-base.css's
+// --theme-color-* resolve) — the manager UI itself is the vanilla NehirCM above.
+// ---------------------------------------------------------------------------
+window.NehirCommandletsApp = class extends Pict.PictApplicationClass
+{
+  onAfterInitializeAsync(fCallback)
+  {
+    try
+    {
+      if (window.PictSectionModal && !this.pict.views['Pict-Section-Modal'])
+      {
+        this.pict.addView('Pict-Section-Modal', window.PictSectionModal.default_configuration, window.PictSectionModal);
+      }
+      if (window.PictSectionTheme && !this.pict.providers.Theme)
+      {
+        this.pict.addProvider('Theme-Section', { Persistence: false }, window.PictSectionTheme);
+      }
+      if (this.pict.CSSMap && typeof this.pict.CSSMap.injectCSS === 'function') { this.pict.CSSMap.injectCSS(true); }
+    }
+    catch (pError) { /* theme is best-effort */ }
+
+    NehirCM.renderSlots();
+    NehirCM.renderEditor();
+    NehirCM.renderHistory();
+    cmBridge('themeGet');
+    cmBridge('commandletsGet');
+    cmBridge('historyGet');
+    cmBridge('terminalCwdGet');
+
+    return super.onAfterInitializeAsync ? super.onAfterInitializeAsync(fCallback) : fCallback();
+  }
+};
+window.NehirCommandletsApp.default_configuration =
+{
+  Product: "NehirCommandlets",
+  pict_configuration: { Product: "NehirCommandlets" }
+};
+
+Pict.safeOnDocumentReady(function ()
+{
+  try { Pict.safeLoadPictApplication(window.NehirCommandletsApp, 1); }
+  catch (pError) { /* ignore */ }
+});
+</script>
+</body>
+</html>

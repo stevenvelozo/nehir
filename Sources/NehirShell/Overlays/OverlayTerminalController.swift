@@ -95,6 +95,16 @@ final class OverlayTerminalController: NSObject, @preconcurrency LocalProcessTer
         terminalView?.send(txt: text)
     }
 
+    /// Ask the live shell to append its in-memory history to the history file, so the
+    /// commandlet manager's Refresh picks up commands just run in this warm session (a
+    /// warm shell doesn't write history until it exits). The leading space keeps the flush
+    /// out of history on ignore-space shells; `fc -AI` (zsh) falls back to `history -a`
+    /// (bash), output suppressed.
+    func flushHistory() {
+        guard isRunning else { return }
+        send(" fc -AI 2>/dev/null || history -a 2>/dev/null\n")
+    }
+
     /// True when a warm shell session is live (panel built and process running).
     var isRunning: Bool { terminalView != nil && processRunning }
 

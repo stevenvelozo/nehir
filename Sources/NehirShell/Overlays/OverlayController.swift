@@ -536,6 +536,13 @@ final class OverlayController {
         dismiss: { on: ["esc", "clickAway"] }
       };
     });
+    shell.overlay.register("commandlets", function () {
+      return {
+        source: { kind: "webview", url: "nehir-resource://commandlets.html" },
+        present: { anchor: "activeMonitorCenter", sizeClass: "large" },
+        dismiss: { on: ["esc", "clickAway"] }
+      };
+    });
     """
 
     /// Handle an action a webview overlay posted via `window.webkit.messageHandlers.nehir`.
@@ -558,6 +565,22 @@ final class OverlayController {
             applyTerminalSettings(from: body["values"])
         case "overlayClose":
             hide()
+        case "commandletsGet":
+            sendCommandlets()
+        case "historyGet":
+            sendShellHistory()
+        case "historyRefresh":
+            // Flush the warm session's in-memory history to disk, then re-read after a beat
+            // so commands just run in the OSD terminal show up in the picker.
+            terminalController.flushHistory()
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                self?.sendShellHistory()
+            }
+        case "commandletsSet":
+            applyCommandlets(from: body["commandlets"])
+        case "terminalCwdGet":
+            sendTerminalCwd()
         default:
             core.log(.warn, "unknown webview action", ["action": action])
         }
@@ -684,6 +707,40 @@ final class OverlayController {
     private func applyThemeSelection(_ id: String) {
         ThemeStore.setActiveThemeID(id)
         sendActiveThemeHash()
+    }
+
+    // MARK: - Commandlet manager bridge
+
+    /// Push the commandlet store to the manager overlay (it calls `window.applyHostCommandlets`).
+    private func sendCommandlets() {
+        guard let webView = webViews["commandlets"] else { return }
+        guard let data = try? JSONEncoder().encode(CommandletStore.load()),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.applyHostCommandlets && window.applyHostCommandlets(\(json));", completionHandler: nil)
+    }
+
+    /// The shell-history host-data bridge: read + dedupe the user's history and hand it to
+    /// the manager's picker (`window.applyHostHistory`). `historyRefresh` just re-reads.
+    private func sendShellHistory() {
+        guard let webView = webViews["commandlets"] else { return }
+        guard let data = try? JSONEncoder().encode(ShellHistory.entries()),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.applyHostHistory && window.applyHostHistory(\(json));", completionHandler: nil)
+    }
+
+    /// Default a slot's pinned folder to the terminal's live cwd (`window.applyHostTerminalCwd`).
+    private func sendTerminalCwd() {
+        guard let webView = webViews["commandlets"] else { return }
+        let cwd = terminalController.currentWorkingDirectory ?? ""
+        webView.evaluateJavaScript("window.applyHostTerminalCwd && window.applyHostTerminalCwd(\(jsString(cwd)));", completionHandler: nil)
+    }
+
+    /// Persist the commandlet list the manager posted (replaces the store on disk).
+    private func applyCommandlets(from any: Any?) {
+        guard let array = any as? [[String: Any]],
+              let data = try? JSONSerialization.data(withJSONObject: array),
+              let commandlets = try? JSONDecoder().decode([Commandlet].self, from: data) else { return }
+        CommandletStore.save(commandlets)
     }
 
     /// Apply settings posted by the settings form: update the live appearance (so the
