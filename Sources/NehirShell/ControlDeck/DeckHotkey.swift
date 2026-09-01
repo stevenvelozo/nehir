@@ -14,8 +14,16 @@ struct DeckHotkeyChord: Equatable {
     static let commandD = DeckHotkeyChord(keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(cmdKey))
 
     /// Parse strings like "cmd+d", "opt+cmd+space", "ctrl+shift+j". Falls back to
-    /// ⌘D when a token can't be resolved.
+    /// ⌘D when a token can't be resolved — the right default for the *primary* summon.
     static func parse(_ string: String) -> DeckHotkeyChord {
+        parseStrict(string) ?? .commandD
+    }
+
+    /// Like `parse`, but returns nil (instead of the ⌘D fallback) when the string doesn't
+    /// resolve to a key plus at least one modifier. Callers that must NOT silently shadow ⌘D —
+    /// the pass-through tap, whose head-insert placement would then consume ⌘D itself — use this
+    /// to treat an unparseable chord as "disabled" rather than registering ⌘D.
+    static func parseStrict(_ string: String) -> DeckHotkeyChord? {
         var modifiers: UInt32 = 0
         var keyCode: UInt32?
         for rawToken in string.lowercased().split(whereSeparator: { $0 == "+" || $0 == "-" || $0 == " " }) {
@@ -36,7 +44,7 @@ struct DeckHotkeyChord: Equatable {
             default: keyCode = Self.keyCodes[token]
             }
         }
-        guard let keyCode, modifiers != 0 else { return .commandD }
+        guard let keyCode, modifiers != 0 else { return nil }
         return DeckHotkeyChord(keyCode: keyCode, modifiers: modifiers)
     }
 

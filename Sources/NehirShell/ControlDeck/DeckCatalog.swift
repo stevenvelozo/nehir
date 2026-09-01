@@ -24,6 +24,7 @@ enum DeckCatalog {
         case .layout: layout
         case .internals: internals
         case .commandlets: commandlets
+        case .nehirCommandlets: nehirCommandlets
         }
     }
 
@@ -57,6 +58,68 @@ enum DeckCatalog {
                 title: "Builder",
                 symbol: "hammer",
                 kind: .showOverlay("tools")
+            ),
+            DeckAction(
+                key: .character("n"),
+                keyLabel: "N",
+                title: "Nehir…",
+                symbol: "waveform.path.ecg",
+                kind: .enterMode(.nehirCommandlets)
+            ),
+        ]
+    )
+
+    /// Built-in "nehir" commandlets, reached from the Commandlets palette via `n`. These run
+    /// in the inherent terminal exactly like a user slot, but the command is baked in: fixed
+    /// helpers that drive nehir's own runtime diagnostics (the trace capture the ghost-window
+    /// hunt relies on). The bodies invoke `nehirctl`, nehir's control CLI, so the OSD stays
+    /// decoupled from the diagnostics core. `capture` snapshots the always-on rolling trace
+    /// buffer plus the reconcile-debug + window state into nehir's trace directory
+    /// (`$XDG_STATE_HOME/nehir/traces`, default `~/.local/state/nehir/traces`); the operator
+    /// can edit the echo (or add ops) to taste.
+    static let nehirCommandlets = DeckMode(
+        id: .nehirCommandlets,
+        title: "Nehir",
+        actions: [
+            DeckAction(
+                key: .character("1"),
+                keyLabel: "1",
+                title: "Start extra trace",
+                symbol: "record.circle",
+                kind: .runCommandlet(Commandlet(
+                    id: "nehir.trace.start",
+                    name: "Start extra trace",
+                    body: "nehirctl command debug trace toggle active"
+                ))
+            ),
+            DeckAction(
+                key: .character("2"),
+                keyLabel: "2",
+                title: "Stop extra trace",
+                symbol: "stop.circle",
+                kind: .runCommandlet(Commandlet(
+                    id: "nehir.trace.stop",
+                    name: "Stop extra trace",
+                    body: "nehirctl command debug trace toggle inactive"
+                ))
+            ),
+            DeckAction(
+                key: .character("3"),
+                keyLabel: "3",
+                title: "Capture trace",
+                symbol: "camera.aperture",
+                kind: .runCommandlet(Commandlet(
+                    id: "nehir.trace.capture",
+                    name: "Capture trace",
+                    body: "nehirctl command debug capture-recent-trace; "
+                        // Resolve the trace dir the way NehirStoragePaths does (honor an absolute
+                        // XDG_STATE_HOME, else ~/.local/state) so these dumps land next to the clip
+                        // capture-recent-trace just wrote, not in a divergent hardcoded folder.
+                        + "T=\"${XDG_STATE_HOME:-$HOME/.local/state}/nehir/traces/ghost-$(date +%s)\"; "
+                        + "nehirctl query reconcile-debug --format json > \"$T-reconcile.json\"; "
+                        + "nehirctl query windows --format json > \"$T-windows.json\"; "
+                        + "echo \"saved → $T-*.json\""
+                ))
             ),
         ]
     )

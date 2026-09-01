@@ -214,9 +214,21 @@ public enum NehirShell {
         deck.layoutModeController = layoutModes
         deck.viewportInsetController = viewportInset
         deck.overlays = overlays
-        deck.install(chord: DeckHotkeyChord.parse(config.deck.hotkey))
+        deck.install(
+            primaryHotkey: config.deck.hotkey,
+            remoteHotkey: config.deck.remoteHotkey,
+            passthroughApps: config.deck.remotePassthroughApps
+        )
+        // Let the Settings pane read the current summon chords and re-register them live.
+        overlays?.readDeckHotkeys = { [weak deck] in deck?.currentHotkeys() ?? ("cmd+d", "") }
+        overlays?.applyDeckHotkeys = { [weak deck] primary, remote in
+            deck?.applyHotkeysFromSettings(primary: primary, remote: remote)
+        }
         self.deck = deck
-        log.info("control deck armed (hotkey=\(config.deck.hotkey, privacy: .public))")
+        log.info("""
+        control deck armed (hotkey=\(config.deck.hotkey, privacy: .public), \
+        remoteHotkey=\(config.deck.remoteHotkey, privacy: .public))
+        """)
     }
 
     private static func appVersion() -> String {

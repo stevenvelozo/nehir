@@ -46,6 +46,8 @@ struct DeckView: View {
             DeckInternalsView(model: model)
         case .commandlets:
             commandletList
+        case .nehirCommandlets:
+            nehirCommandletList
         case .root:
             rootLayout
         default:
@@ -145,6 +147,18 @@ struct DeckView: View {
                     numberedRow(slot.label, slot.title) { slot.activate() }
                 }
             }
+            ForEach(model.mode.actions) { action in
+                numberedRow(action.keyLabel, action.title) { model.activate(action) }
+            }
+        }
+        .frame(width: 320)
+    }
+
+    /// The built-in nehir helpers list (trace start/stop, capture), reached via `n` from the
+    /// Commandlets palette. Each row runs its baked-in commandlet through `activate`, which
+    /// keeps the OSD up so the terminal output stays visible — the same feel as a slot row.
+    private var nehirCommandletList: some View {
+        VStack(spacing: 5) {
             ForEach(model.mode.actions) { action in
                 numberedRow(action.keyLabel, action.title) { model.activate(action) }
             }

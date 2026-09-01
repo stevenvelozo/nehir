@@ -56,6 +56,10 @@ enum DeckActionKind {
     case back
     /// Summon a registered overlay (a pict extension) by id, then close.
     case showOverlay(String)
+    /// Run a fixed, built-in commandlet in the inherent terminal — like a user slot
+    /// runner, but the command is baked in (nehir's own diagnostics helpers) rather
+    /// than read from a slot. Keeps the OSD up so the output stays visible.
+    case runCommandlet(Commandlet)
 }
 
 /// One selectable entry, addressable by key or tap.
@@ -87,6 +91,9 @@ enum DeckModeID: Equatable {
     case layout
     case internals
     case commandlets
+    /// Built-in nehir helpers (trace start/stop, capture) reached from the Commandlets
+    /// palette via `n` — fixed commandlets that drive nehir's own runtime diagnostics.
+    case nehirCommandlets
 }
 
 /// The window chosen in the Configure flow, carried into the edit screen.

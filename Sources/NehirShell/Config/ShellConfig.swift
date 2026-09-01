@@ -57,13 +57,33 @@ struct TerminalConfig: Sendable, Equatable {
 /// Configuration for the Control Deck — the chord-driven window-management HUD.
 struct DeckConfig: Sendable, Equatable {
     var enabled: Bool
-    /// Global trigger chord, e.g. "cmd+d", "opt+cmd+space".
+    /// Global trigger chord, e.g. "cmd+d", "opt+cmd+space". Registered as a Carbon hotkey,
+    /// so the OS always consumes it on *this* machine (never forwarded to a Screen Sharing
+    /// session) — it opens the local OSD.
     var hotkey: String
+    /// A second summon chord for reaching the OSD *through* a Screen Sharing session. Handled
+    /// by an event tap: when a `remotePassthroughApps` window is focused it passes the chord
+    /// through (so it lands on the machine you're shelled into, whose own Nehir opens its OSD);
+    /// otherwise it opens the local OSD — so, like the primary, it shadows this chord in the
+    /// focused local app whenever you're not in a session. Empty (or an unparseable / duplicate
+    /// value) disables it.
+    var remoteHotkey: String
+    /// Bundle IDs whose focused window makes `remoteHotkey` pass through to the remote instead
+    /// of opening the local OSD (default: macOS Screen Sharing). Add other remote-desktop
+    /// clients (VNC, RDP, …) here.
+    var remotePassthroughApps: [String]
     /// Resize-grid dimensions (columns × rows).
     var gridColumns: Int
     var gridRows: Int
 
-    static let fallback = DeckConfig(enabled: true, hotkey: "cmd+d", gridColumns: 8, gridRows: 5)
+    static let fallback = DeckConfig(
+        enabled: true,
+        hotkey: "cmd+d",
+        remoteHotkey: "cmd+j",
+        remotePassthroughApps: ["com.apple.ScreenSharing"],
+        gridColumns: 8,
+        gridRows: 5
+    )
 }
 
 /// Configuration for the desktop status panel — a fable-template-driven desklet.
@@ -108,6 +128,8 @@ private struct ShellConfigFile: Decodable {
     struct Deck: Decodable {
         var enabled: Bool?
         var hotkey: String?
+        var remoteHotkey: String?
+        var remotePassthroughApps: [String]?
         var grid: String?
     }
 
@@ -194,6 +216,8 @@ enum ShellConfigLoader {
         guard let deck else { return }
         if let enabled = deck.enabled { result.enabled = enabled }
         if let hotkey = deck.hotkey { result.hotkey = hotkey }
+        if let remoteHotkey = deck.remoteHotkey { result.remoteHotkey = remoteHotkey }
+        if let apps = deck.remotePassthroughApps { result.remotePassthroughApps = apps }
         if let grid = deck.grid, let dimensions = parseGridDimensions(grid) {
             result.gridColumns = dimensions.columns
             result.gridRows = dimensions.rows
@@ -283,6 +307,16 @@ enum ShellConfigLoader {
         # "Don't Save" in save dialogs) system-wide — change it here if that bites.
         # e.g. "opt+cmd+d", "opt+cmd+space", "ctrl+shift+j".
         hotkey = "cmd+d"
+        # A SECOND summon chord for reaching the OSD across a Screen Sharing session. When a
+        # window listed in remotePassthroughApps is focused, this chord passes THROUGH to that
+        # session (so the Mac you're shelled into opens its own OSD); otherwise it opens the
+        # LOCAL OSD — so it shadows this chord in the focused app whenever you're NOT in a
+        # session (cmd+j is used by some apps). Pick a chord that isn't already eaten locally
+        # (cmd+d is). An unparseable or duplicate value disables it; empty = disabled.
+        remoteHotkey = "cmd+j"
+        # Focused windows of these apps make remoteHotkey pass through instead of opening the
+        # local OSD. Add other remote-desktop clients (VNC, RDP, …) as needed.
+        remotePassthroughApps = ["com.apple.ScreenSharing"]
         # Resize-grid dimensions (columns x rows) you drag on in the Resize submode.
         grid = "8x5"
 

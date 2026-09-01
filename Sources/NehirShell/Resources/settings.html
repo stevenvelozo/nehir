@@ -16,9 +16,17 @@
 </head>
 <body class="pict-modal-root">
 <h1>Terminal Settings</h1>
-<div class="nehir-subtitle">Appearance of the Deck's inherent terminal, plus the theme shared across every nehir panel.</div>
+<div class="nehir-subtitle">Appearance of the Deck's inherent terminal, the OSD summon hotkeys, and the theme shared across every nehir panel.</div>
 
 <div id="Pict-Form-Container"></div>
+
+<label style="margin-top: 20px;">OSD hotkey</label>
+<input id="nehir-deck-hotkey" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="cmd+d">
+<div class="nehir-subtitle">Opens the OSD on this Mac. e.g. cmd+d, opt+cmd+space, ctrl+shift+j.</div>
+
+<label style="margin-top: 12px;">Remote OSD hotkey (Screen Sharing pass-through)</label>
+<input id="nehir-deck-remote-hotkey" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="cmd+j">
+<div class="nehir-subtitle">Reaches the OSD across a Screen Sharing session: when a Screen Sharing window is focused this chord passes through to the remote Mac (whose own nehir opens its OSD); otherwise it opens the local OSD. Empty disables it.</div>
 
 <label style="margin-top: 20px;">Theme</label>
 <div id="Theme-Picker"></div>
@@ -88,6 +96,7 @@ window.NehirTerminalSettings = class extends PictSectionForm.PictFormApplication
       var bridge = window.webkit.messageHandlers.nehir;
       bridge.postMessage({ action: 'fontsGet' });
       bridge.postMessage({ action: 'settingsGet' });
+      bridge.postMessage({ action: 'hotkeysGet' });
       bridge.postMessage({ action: 'themeGet' });
     }
     return super.onAfterInitializeAsync ? super.onAfterInitializeAsync(fCallback) : fCallback();
@@ -173,14 +182,23 @@ window.NehirTerminalSettings = class extends PictSectionForm.PictFormApplication
   saveSettings()
   {
     var values = this.collectValues();
+    // The two summon chords are plain inputs (not part of the pict form), read straight here.
+    function hk(pId) { var el = document.getElementById(pId); return el ? String(el.value || '').trim() : ''; }
+    var hotkeys = { primary: hk('nehir-deck-hotkey'), remote: hk('nehir-deck-remote-hotkey') };
     // In nehir this posts to the Swift bridge; in the browser harness we just log.
     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nehir)
     {
       window.webkit.messageHandlers.nehir.postMessage({ action: 'settingsSet', section: 'terminal', values: values });
+      // Only persist the chords once the host populated them; otherwise a Save during the load
+      // race would post empty strings and wipe the summon hotkeys.
+      if (window._nehirHotkeysLoaded)
+      {
+        window.webkit.messageHandlers.nehir.postMessage({ action: 'hotkeysSet', primary: hotkeys.primary, remote: hotkeys.remote });
+      }
     }
     else
     {
-      nehirDebug('SAVE (browser harness) → ' + JSON.stringify(values));
+      nehirDebug('SAVE (browser harness) → ' + JSON.stringify(values) + ' hotkeys ' + JSON.stringify(hotkeys));
     }
   }
 };
@@ -229,6 +247,24 @@ window.applyHostSettings = function(values)
     nehirDebug('applied host settings ' + JSON.stringify(app.pict.AppData.Terminal));
   }
   catch (pError) { nehirDebug('applyHostSettings error: ' + pError); }
+};
+
+// The host (nehir) calls this to push the live summon chords into the two hotkey inputs.
+window.applyHostHotkeys = function(values)
+{
+  try
+  {
+    var v = values || {};
+    var primary = document.getElementById('nehir-deck-hotkey');
+    var remote = document.getElementById('nehir-deck-remote-hotkey');
+    if (primary) { primary.value = (v.primary == null ? '' : v.primary); }
+    if (remote) { remote.value = (v.remote == null ? '' : v.remote); }
+    // Mark the chords as populated so a Save can't post empty strings (which would disable the
+    // remote tap and reset the primary) during the async hotkeysGet round-trip.
+    window._nehirHotkeysLoaded = true;
+    nehirDebug('applied host hotkeys ' + JSON.stringify(v));
+  }
+  catch (pError) { nehirDebug('applyHostHotkeys error: ' + pError); }
 };
 
 // --- Theme bridge ---

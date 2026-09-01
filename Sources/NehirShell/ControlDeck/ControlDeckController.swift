@@ -5,6 +5,7 @@
 
 import AppKit
 @testable import Nehir
+import NehirShellWire
 import SwiftUI
 
 /// A borderless key panel — mirrors the base command palette's panel recipe so it
@@ -34,6 +35,13 @@ final class ControlDeckController: NSObject {
     private let panel: DeckPanel
     private let hostingView: DeckHostingView
     private let hotkey = DeckHotkey()
+    /// A second, pass-through summon chord for reaching the OSD across a Screen Sharing session.
+    private let remoteHotkey = DeckRemoteHotkey()
+    /// The raw chord strings currently registered, remembered so the Settings pane can read them
+    /// back and re-save; `remotePassthroughApps` is applied but not surfaced in the pane.
+    private(set) var currentPrimaryHotkey = "cmd+d"
+    private(set) var currentRemoteHotkey = ""
+    private var remotePassthroughApps: [String] = []
     private let columnBadges = ColumnBadgeOverlayController()
     private let windowList = WindowListOverlayController()
     private weak var wmController: WMController?
@@ -315,14 +323,73 @@ final class ControlDeckController: NSObject {
         controller.updateManagedKeyboardFocusBorder(token: token, preferredFrame: frame)
     }
 
-    /// Register the trigger hotkey and menu-bar item. Call once after bootstrap.
-    func install(chord: DeckHotkeyChord) {
-        hotkey.register(chord: chord) { [weak self] in self?.toggle() }
+    /// Register the trigger hotkeys and menu-bar item. Call once after bootstrap.
+    func install(primaryHotkey: String, remoteHotkey remote: String, passthroughApps: [String]) {
+        applyHotkeys(primary: primaryHotkey, remote: remote, passthroughApps: passthroughApps)
         installStatusItem()
+    }
+
+    /// Register (or re-register) both summon chords live, remembering the raw strings so the
+    /// Settings pane can read them back. The primary is a Carbon global hotkey (always consumed
+    /// on this machine); the remote is an event tap that passes through to a focused Screen
+    /// Sharing session (see `DeckRemoteHotkey`). An empty `remote` disables the pass-through tap.
+    func applyHotkeys(primary: String, remote: String, passthroughApps: [String]) {
+        currentPrimaryHotkey = primary
+        currentRemoteHotkey = remote
+        remotePassthroughApps = passthroughApps
+        let primaryChord = DeckHotkeyChord.parse(primary)
+        hotkey.register(chord: primaryChord) { [weak self] in self?.toggle() }
+        // The pass-through tap must NOT silently fall back to ⌘D: it is a head-insert event tap,
+        // so registering ⌘D there would consume ⌘D before Carbon and break "⌘D is always local".
+        // Register it only for a chord that resolves on its own (strict parse) and differs from
+        // the primary; an empty, unparseable, or duplicate remote chord leaves the tap off.
+        if let remoteChord = DeckHotkeyChord.parseStrict(remote), remoteChord != primaryChord {
+            remoteHotkey.register(
+                chord: remoteChord,
+                passthroughBundleIDs: passthroughApps
+            ) { [weak self] in self?.toggle() }
+        } else {
+            remoteHotkey.unregister()
+        }
+    }
+
+    /// The chords currently registered — answers the Settings pane's `hotkeysGet`.
+    func currentHotkeys() -> (primary: String, remote: String) {
+        (currentPrimaryHotkey, currentRemoteHotkey)
+    }
+
+    /// Apply new summon chords from the Settings pane: re-register live and persist a config
+    /// fragment (mirroring the terminal-settings fragment) so the change survives a restart.
+    func applyHotkeysFromSettings(primary: String, remote: String) {
+        applyHotkeys(primary: primary, remote: remote, passthroughApps: remotePassthroughApps)
+        writeHotkeysFragment(primary: primary, remote: remote)
+    }
+
+    /// Persist the summon chords to `10-deck.toml`. Only the two chord keys are written; the
+    /// rest of `[deck]` (enabled, grid, remotePassthroughApps) stays sourced from earlier
+    /// fragments, since the config merge overrides only the keys present in each file.
+    private func writeHotkeysFragment(primary: String, remote: String) {
+        let directory = ShellPaths.configDirectory()
+        let file = directory.appendingPathComponent("10-deck.toml", isDirectory: false)
+        func escape(_ value: String) -> String {
+            value
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+        }
+        let toml = """
+        # Managed by Nehir Settings (menu bar -> Settings...). Hand-edits here are
+        # overwritten when you save from the Settings panel.
+        [deck]
+        hotkey = "\(escape(primary))"
+        remoteHotkey = "\(escape(remote))"
+        """
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? Data(toml.utf8).write(to: file)
     }
 
     func shutdown() {
         hotkey.unregister()
+        remoteHotkey.unregister()
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
             self.statusItem = nil
@@ -773,6 +840,7 @@ extension ControlDeckController {
         model.readCommandletSlots = { [weak self] in self?.buildCommandletSlots() ?? [] }
         model.runCommandletSlot = { [weak self] slot in self?.runCommandletSlot(slot) }
         model.loadCommandletSlot = { [weak self] slot in self?.loadCommandletSlot(slot) }
+        model.runBuiltinCommandlet = { [weak self] commandlet in self?.runBuiltinCommandlet(commandlet) }
     }
 
     // MARK: - Commandlets
@@ -794,6 +862,17 @@ extension ControlDeckController {
     /// so the output stays visible and more slots can run.
     private func runCommandletSlot(_ slot: Int) {
         guard let commandlet = CommandletStore.commandlet(inSlot: slot, from: CommandletStore.load()) else { return }
+        overlays?.markInherentTerminalActive()
+        overlays?.presentInherentTerminalPane(frame: inherentTerminalPaneFrame())
+        resizeAndCenter()
+        presentColumnBadges()
+        overlays?.runCommandlet(commandlet, load: false)
+    }
+
+    /// Run a built-in nehir commandlet (from the catalog's `.nehirCommandlets` mode). Same
+    /// terminal-pane reveal + run as a numbered slot — the palette stays up so the output is
+    /// visible — but the command is baked into the catalog rather than read from the store.
+    private func runBuiltinCommandlet(_ commandlet: Commandlet) {
         overlays?.markInherentTerminalActive()
         overlays?.presentInherentTerminalPane(frame: inherentTerminalPaneFrame())
         resizeAndCenter()

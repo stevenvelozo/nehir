@@ -102,6 +102,10 @@ final class DeckModel {
     var readCommandletSlots: () -> [DeckPickItem] = { [] }
     var runCommandletSlot: (Int) -> Void = { _ in }
     var loadCommandletSlot: (Int) -> Void = { _ in }
+    /// Runs a fixed, built-in commandlet (a nehir diagnostics helper from the catalog's
+    /// `.nehirCommandlets` mode) in the inherent terminal — injected by the controller.
+    /// Keeps the OSD up, like the numbered slot runners.
+    var runBuiltinCommandlet: (Commandlet) -> Void = { _ in }
 
     /// The active global layout family, shown/selected in the Layout-engine pane.
     private(set) var layoutMode: NehirLayoutMode = .river
@@ -192,6 +196,10 @@ final class DeckModel {
         case let .showOverlay(id):
             onShowOverlay(id)
             onClose()
+        case let .runCommandlet(commandlet):
+            // Keep the OSD up (no onClose) so the terminal output stays visible, exactly
+            // like running a numbered slot from the palette.
+            runBuiltinCommandlet(commandlet)
         }
     }
 

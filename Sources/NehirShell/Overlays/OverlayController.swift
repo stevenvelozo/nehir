@@ -546,6 +546,13 @@ final class OverlayController {
     """
 
     /// Handle an action a webview overlay posted via `window.webkit.messageHandlers.nehir`.
+    /// Reads the Deck's current summon chords for the Settings pane (injected by the shell,
+    /// which owns the Deck controller).
+    var readDeckHotkeys: () -> (primary: String, remote: String) = { ("cmd+d", "") }
+    /// Applies + persists new Deck summon chords from the Settings pane (injected by the shell):
+    /// re-registers the global hotkeys live and writes the config fragment.
+    var applyDeckHotkeys: (_ primary: String, _ remote: String) -> Void = { _, _ in }
+
     private func handleWebAction(_ body: [String: Any]) {
         guard let action = body["action"] as? String else { return }
         switch action {
@@ -581,6 +588,13 @@ final class OverlayController {
             applyCommandlets(from: body["commandlets"])
         case "terminalCwdGet":
             sendTerminalCwd()
+        case "hotkeysGet":
+            sendCurrentDeckHotkeys()
+        case "hotkeysSet":
+            applyDeckHotkeys(
+                (body["primary"] as? String) ?? "",
+                (body["remote"] as? String) ?? ""
+            )
         default:
             core.log(.warn, "unknown webview action", ["action": action])
         }
@@ -662,6 +676,20 @@ final class OverlayController {
             .replacingOccurrences(of: "\"", with: "\\\"")
         let json = "{\"fontSize\":\(appearance.fontSize),\"fontFamily\":\"\(family)\",\"opacity\":\(appearance.opacity),\"cornerRadius\":\(appearance.cornerRadius),\"margin\":\(appearance.margin),\"padding\":\(appearance.padding),\"rows\":\(appearance.rows)}"
         webView.evaluateJavaScript("window.applyHostSettings && window.applyHostSettings(\(json));", completionHandler: nil)
+    }
+
+    /// Answer a `hotkeysGet` from the Settings form by pushing the live summon chords into it
+    /// (the page calls `window.applyHostHotkeys` with these values).
+    private func sendCurrentDeckHotkeys() {
+        guard let webView = webViews["settings"] else { return }
+        let hotkeys = readDeckHotkeys()
+        func escape(_ value: String) -> String {
+            value
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+        }
+        let json = "{\"primary\":\"\(escape(hotkeys.primary))\",\"remote\":\"\(escape(hotkeys.remote))\"}"
+        webView.evaluateJavaScript("window.applyHostHotkeys && window.applyHostHotkeys(\(json));", completionHandler: nil)
     }
 
     /// Answer a `fontsGet` from the settings form with the installed monospaced font
