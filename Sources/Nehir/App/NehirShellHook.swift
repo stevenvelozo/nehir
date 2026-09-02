@@ -57,6 +57,14 @@ enum NehirShellHook {
         @MainActor (ManagedWindowRuleEffects, WindowToken, WorkspaceDescriptor.ID) -> ManagedWindowRuleEffects
     )?
 
+    /// Lets the shell layer supply a remembered "open width" for a window as its column is
+    /// first created at admission — the fraction (0…1 of working width) a new window of this
+    /// app/title should open at, overriding the layout default. Returns nil to keep the
+    /// default (no shell layer linked, or no create-width rule matches). Consulted once per
+    /// window, at admission only, so it seeds the initial width without ever re-pinning it —
+    /// the column stays freely resizable (unlike the `overrideRuleEffects` min-width floor).
+    nonisolated(unsafe) static var initialColumnWidthProportion: (@MainActor (WindowToken) -> Double?)?
+
     /// The active layout family, set by the shell layer. Read on the main thread by the
     /// layout/admission seams (same single-writer/main-reader idiom as `activate`).
     nonisolated(unsafe) static var layoutMode: NehirLayoutMode = .river

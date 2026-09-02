@@ -274,6 +274,29 @@ final class NiriLayoutEngine {
         column.targetWidth = nil
     }
 
+    /// Fork seam: override a just-initialized column's default width with this window's
+    /// remembered "open width" (if the shell layer has one for its app/title). A one-shot
+    /// INITIAL proportion applied only here at admission — never re-pinned on relayout — so the
+    /// column stays freely resizable, deliberately unlike the min-width floor. Called by
+    /// `addWindow` right after `initializeNewColumnWidth`. The hook is main-actor isolated and
+    /// `addWindow` runs only on the WM's main actor; the early guard also means tests (hook
+    /// unset) never reach the isolation assertion, and an upstream build with no shell layer
+    /// linked is a no-op.
+    ///
+    /// Restored windows are never affected: restore runs BEFORE the sync that admits windows
+    /// (see the ordering note in `NiriLayoutHandler.buildRelayoutPlan`), so a restored token is
+    /// already in the tree and `addWindow` — hence this override — never runs for it. Its
+    /// persisted width stands.
+    func applyInitialColumnWidthOverride(_ column: NiriContainer, token: WindowToken) {
+        guard let resolve = NehirShellHook.initialColumnWidthProportion else { return }
+        guard let fraction = MainActor.assumeIsolated({ resolve(token) }), fraction > 0 else { return }
+        // Cap at full width; a too-small fraction needs no floor here — resolveAndCacheWidth
+        // clamps every column up to its window's AX minimum at layout time.
+        let clamped = min(CGFloat(fraction), 1.0)
+        column.width = .proportion(clamped)
+        column.presetWidthIdx = matchingPresetIndex(for: clamped)
+    }
+
     private func matchingPresetIndex(for width: CGFloat) -> Int? {
         presetColumnWidths.firstIndex { preset in
             guard case let .proportion(presetWidth) = preset.kind else { return false }

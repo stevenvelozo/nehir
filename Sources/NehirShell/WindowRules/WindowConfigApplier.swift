@@ -36,4 +36,19 @@ enum WindowConfigApplier {
         updated.minWidth = max(updated.minWidth ?? 0, points)
         return updated
     }
+
+    /// The remembered open-width for a window, as a fraction (0…1) of working width, or nil
+    /// when no rule sets one. Resolves the window's app/title the same way `apply` does, then
+    /// reads the most-specific matching rule's `createWidthPercent`. Monitor-independent (a
+    /// fraction, not points), so it needs no workspace/monitor.
+    static func createWidthProportion(token: WindowToken, store: WindowConfigStore) -> Double? {
+        guard let bundleId = NSRunningApplication(processIdentifier: token.pid)?.bundleIdentifier else {
+            return nil
+        }
+        let title = AXWindowService.titlePreferFast(windowId: UInt32(token.windowId))
+        guard let percent = store.rule(bundleId: bundleId, title: title)?.createWidthPercent else {
+            return nil
+        }
+        return percent / 100.0
+    }
 }

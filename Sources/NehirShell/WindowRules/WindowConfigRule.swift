@@ -21,6 +21,11 @@ struct WindowConfigRule: Codable, Identifiable, Equatable {
     var titleContains: String?
     /// Forced column minimum width as a percent (0…100) of the monitor working width.
     var minWidthPercent: Double?
+    /// The width (percent 0…100 of working width) a NEW window of this app/title opens at,
+    /// overriding the layout default. Unlike `minWidthPercent` this is a one-shot INITIAL
+    /// width applied only at admission — the window stays freely resizable afterward. `nil`
+    /// leaves the layout default. Captured from an explicit user width command (⌘D→W).
+    var createWidthPercent: Double?
     /// Pin the matched window to floating.
     var alwaysFloat: Bool = false
 
@@ -29,12 +34,14 @@ struct WindowConfigRule: Codable, Identifiable, Equatable {
         bundleId: String,
         titleContains: String? = nil,
         minWidthPercent: Double? = nil,
+        createWidthPercent: Double? = nil,
         alwaysFloat: Bool = false
     ) {
         self.id = id
         self.bundleId = bundleId
         self.titleContains = titleContains
         self.minWidthPercent = minWidthPercent
+        self.createWidthPercent = createWidthPercent
         self.alwaysFloat = alwaysFloat
     }
 
@@ -46,6 +53,7 @@ struct WindowConfigRule: Codable, Identifiable, Equatable {
         bundleId = try container.decode(String.self, forKey: .bundleId)
         titleContains = try container.decodeIfPresent(String.self, forKey: .titleContains)
         minWidthPercent = try container.decodeIfPresent(Double.self, forKey: .minWidthPercent)
+        createWidthPercent = try container.decodeIfPresent(Double.self, forKey: .createWidthPercent)
         alwaysFloat = try container.decodeIfPresent(Bool.self, forKey: .alwaysFloat) ?? false
     }
 
@@ -62,6 +70,6 @@ struct WindowConfigRule: Codable, Identifiable, Equatable {
 
     /// True when the rule would change nothing (safe to drop instead of persist).
     var hasNoEffect: Bool {
-        minWidthPercent == nil && !alwaysFloat
+        minWidthPercent == nil && createWidthPercent == nil && !alwaysFloat
     }
 }

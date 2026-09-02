@@ -27,6 +27,7 @@ struct DeckConfigureEditView: View {
             }
             scopeRow
             widthSection
+            openWidthSection
             HStack(spacing: 8) {
                 floatChip
                 removeChip
@@ -69,6 +70,27 @@ struct DeckConfigureEditView: View {
                 }
                 presetChip(key: "N", text: "None", active: rule?.minWidthPercent == nil) {
                     model.setConfigureWidth(nil)
+                }
+            }
+        }
+    }
+
+    /// The width a NEW window of this app/title opens at — usually captured automatically from a
+    /// ⌘D→W command, shown/settable/clearable here. Tap-only chips (no digit keys, which the
+    /// Min-width row above owns); the None chip clears it and the layout default returns.
+    private var openWidthSection: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            sectionLabel("Open width · new windows")
+            HStack(spacing: 6) {
+                ForEach(Array(DeckCatalog.widthPercents.enumerated()), id: \.offset) { _, percent in
+                    presetChip(
+                        key: "",
+                        text: "\(Int(percent))%",
+                        active: rule?.createWidthPercent == percent
+                    ) { model.setConfigureCreateWidth(percent) }
+                }
+                presetChip(key: "", text: "None", active: rule?.createWidthPercent == nil) {
+                    model.setConfigureCreateWidth(nil)
                 }
             }
         }

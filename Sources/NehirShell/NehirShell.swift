@@ -154,6 +154,11 @@ public enum NehirShell {
                     controller: controller
                 )
             }
+            // A new window opens at its app/title's remembered "open width" (if any), applied
+            // once at admission — see NiriLayoutEngine.applyInitialColumnWidthOverride.
+            NehirShellHook.initialColumnWidthProportion = { token in
+                WindowConfigApplier.createWidthProportion(token: token, store: windowRules)
+            }
             // The WM's startup window-rescan runs BEFORE this hook is installed, so any
             // window admitted at launch never had its fork rule applied. Re-evaluate the
             // already-admitted windows once, now that the hook is live, so persisted forced

@@ -563,6 +563,12 @@ enum NiriWindowMoveResult {
             removedNodeIds: snapshot.removalSeed?.removedNodeIds ?? []
         )
 
+        // Restore MUST precede syncAndInsert. Restore rebuilds columns at each token's persisted
+        // width and attaches the tokens to the tree, so syncWindows then sees them as already
+        // admitted (existingIdSet) and skips addWindow for them. That ordering is what keeps the
+        // "open width" seam (NiriLayoutEngine.applyInitialColumnWidthOverride, which runs only via
+        // addWindow at first admission) from ever touching a restored window — swap these two and
+        // restored widths would be clobbered by the open-width default.
         restoreInitialNiriPlacementsIfNeeded(pass: pass, windowTokens: windowTokens)
 
         let newTokens = syncAndInsert(

@@ -151,6 +151,14 @@ final class DeckModel {
         commitConfigure()
     }
 
+    /// Set (or clear, with `nil`) the "open width" a new window of this app/title opens at,
+    /// then persist. (Usually captured automatically from a ⌘D→W command; this is the manual
+    /// set/clear in the Configure screen.)
+    func setConfigureCreateWidth(_ percent: Double?) {
+        configureRule?.createWidthPercent = percent
+        commitConfigure()
+    }
+
     func toggleConfigureFloat() {
         configureRule?.alwaysFloat.toggle()
         commitConfigure()
@@ -165,6 +173,7 @@ final class DeckModel {
     /// Drop all effects (removes the rule on commit).
     func clearConfigure() {
         configureRule?.minWidthPercent = nil
+        configureRule?.createWidthPercent = nil
         configureRule?.alwaysFloat = false
         commitConfigure()
     }

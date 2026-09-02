@@ -50,6 +50,18 @@ final class WindowConfigStore {
         save()
     }
 
+    /// Remember `percent` (of working width) as the open-width for the rule matching this
+    /// window — the most-specific existing rule, or a fresh app-wide rule if none — so future
+    /// windows of that app (or that title) open there. Learned only from explicit user width
+    /// intent; it REPLACES (never accumulates) the prior value, and other fields (min-width,
+    /// float, scope) on a matched rule are preserved. A title-scoped rule (e.g. a Screen
+    /// Sharing launcher window) captures independently of the broad app rule.
+    func rememberCreateWidth(bundleId: String, title: String?, percent: Double) {
+        var target = rule(bundleId: bundleId, title: title) ?? WindowConfigRule(bundleId: bundleId)
+        target.createWidthPercent = percent
+        upsert(target)
+    }
+
     private static func load(from fileURL: URL) -> [WindowConfigRule] {
         guard let data = try? Data(contentsOf: fileURL),
               let decoded = try? JSONDecoder().decode([WindowConfigRule].self, from: data)

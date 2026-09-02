@@ -11,6 +11,21 @@ import Foundation
 
 private let perAppTimeout: TimeInterval = 0.5
 
+/// Cap on concurrent per-app AX window queries during a first-rescan retry (see
+/// `fullRescanEnumerationSnapshot`). The initial pass stays unbounded; the retry runs bounded so
+/// re-querying the apps that timed out does not itself re-thrash the shared AX subsystem — a handful
+/// in flight keeps each query fast enough to beat `perAppTimeout` while still clearing a large failed
+/// set in a few waves.
+private let maxConcurrentAXRetryEnumerations = 8
+
+/// Back-off schedule (nanoseconds) for retrying apps whose first-rescan AX query timed out. Right
+/// after launch an app's main thread is saturated re-rendering, so its AX query blows `perAppTimeout`
+/// and it contributes zero windows; these increasing pauses let it settle before the re-query. The
+/// element count bounds the retries, so an app that keeps failing to enumerate (a genuinely
+/// window-less app returns success-with-no-windows and is never retried) costs a fixed number of
+/// waves rather than spinning.
+private let firstRescanRetryBackoffNanos: [UInt64] = [250_000_000, 500_000_000, 1_000_000_000]
+
 @MainActor
 final class AXManager {
     typealias FrameApplicationTerminalObserver = @MainActor (AXFrameApplyResult) -> Void
@@ -316,6 +331,8 @@ final class AXManager {
         inactiveWorkspaceWindowIds.removeAll()
         nextFrameApplicationRequestId = 1
         recentFrameApplyTrace.removeAll(keepingCapacity: true)
+        // A runtime-state reset restarts discovery from cold — re-arm the one-time self-heal.
+        didStartFirstFullRescan = false
     }
 
     func rekeyWindowState(pid: pid_t, oldWindowId: Int, newWindow: AXWindowRef) {
@@ -416,6 +433,9 @@ final class AXManager {
     }
 
     func cleanup() {
+        // The AX contexts are torn down below (cold state again on a later re-enable), so re-arm the
+        // one-time cold-start self-heal for the next first rescan.
+        didStartFirstFullRescan = false
         if let observer = appTerminationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             appTerminationObserver = nil
@@ -493,6 +513,12 @@ final class AXManager {
         return await fullRescanEnumerationSnapshot().windows
     }
 
+    /// Latched when the first full rescan STARTS (not completes), so its one-time cold-start
+    /// self-heal retry (below) runs once and never on steady-state rescans. Reset in `cleanup()` and
+    /// `resetRuntimeState()` so a disable→re-enable or runtime-state reset — which tears the AX
+    /// contexts back down to a cold state — heals again on the next rescan instead of staying gated off.
+    private var didStartFirstFullRescan = false
+
     func fullRescanEnumerationSnapshot() async -> FullRescanEnumerationSnapshot {
         AppAXContext.garbageCollect()
         if let fullRescanEnumerationOverrideForTests {
@@ -546,22 +572,14 @@ final class AXManager {
         let trackedPIDs = Set(apps.map(\.processIdentifier))
         let windowServerCounts = windowServerCountsByPid
 
-        let snapshot = await withTaskGroup(
+        let isFirstFullRescan = !didStartFirstFullRescan
+        didStartFirstFullRescan = true
+
+        let initial = await withTaskGroup(
             of: (pid: pid_t, windows: [(AXWindowRef, pid_t, Int)], failed: Bool).self
         ) { group in
             for app in apps {
-                group.addTask {
-                    let enumeration = await self.rawWindowEnumerationForApp(
-                        app,
-                        recordMismatchAgainst: windowServerCounts[app.processIdentifier]
-                    )
-                    switch enumeration {
-                    case .success(let windows):
-                        return (app.processIdentifier, windows, false)
-                    case .failed:
-                        return (app.processIdentifier, [], true)
-                    }
-                }
+                group.addTask { await self.enumerateAppForSnapshot(app, windowServerCounts: windowServerCounts) }
             }
 
             var results: [(AXWindowRef, pid_t, Int)] = []
@@ -575,8 +593,79 @@ final class AXManager {
             return FullRescanEnumerationSnapshot(windows: results, failedPIDs: failedPIDs)
         }
 
+        // First-rescan self-heal: right after launch, apps still re-rendering blow the per-app AX
+        // timeout and drop out of the initial pass — a full desktop can under-admit to just 1–2
+        // windows. ONLY on this first rescan (never steady-state, so an AX-window-less app adds no
+        // latency later), re-query the timed-out apps with bounded concurrency and a short back-off
+        // so they settle and their windows get admitted. The initial pass above is unchanged.
+        var results = initial.windows
+        var failedPIDs = initial.failedPIDs
+        if isFirstFullRescan, !failedPIDs.isEmpty {
+            for backoff in firstRescanRetryBackoffNanos {
+                // Bail promptly if this refresh was superseded — the caller checks cancellation right
+                // after this snapshot returns, so don't grind through doomed waves during a back-off.
+                if failedPIDs.isEmpty || Task.isCancelled { break }
+                try? await Task.sleep(nanoseconds: backoff)
+                let retryApps = apps.filter { failedPIDs.contains($0.processIdentifier) }
+                let retry = await boundedWindowEnumeration(retryApps, windowServerCounts: windowServerCounts)
+                results.append(contentsOf: retry.windows)
+                failedPIDs = retry.failedPIDs
+            }
+        }
+
+        let snapshot = FullRescanEnumerationSnapshot(windows: results, failedPIDs: failedPIDs)
         recordFullRescanOmissions(snapshot: snapshot, visibleWindows: visibleWindows, trackedPIDs: trackedPIDs)
         return snapshot
+    }
+
+    /// Run one app's snapshot enumeration and tag the outcome — the shared per-app task body for
+    /// both the initial fan-out and the bounded retry.
+    private func enumerateAppForSnapshot(
+        _ app: NSRunningApplication,
+        windowServerCounts: [pid_t: Int]
+    ) async -> (pid: pid_t, windows: [(AXWindowRef, pid_t, Int)], failed: Bool) {
+        let enumeration = await rawWindowEnumerationForApp(
+            app,
+            recordMismatchAgainst: windowServerCounts[app.processIdentifier]
+        )
+        switch enumeration {
+        case .success(let windows):
+            return (app.processIdentifier, windows, false)
+        case .failed:
+            return (app.processIdentifier, [], true)
+        }
+    }
+
+    /// Enumerate `apps` with at most `maxConcurrentAXRetryEnumerations` queries in flight — seed a
+    /// batch, then start the next app as each finishes — so re-querying a large timed-out set runs in
+    /// waves instead of all at once.
+    private func boundedWindowEnumeration(
+        _ apps: [NSRunningApplication],
+        windowServerCounts: [pid_t: Int]
+    ) async -> (windows: [(AXWindowRef, pid_t, Int)], failedPIDs: Set<pid_t>) {
+        await withTaskGroup(
+            of: (pid: pid_t, windows: [(AXWindowRef, pid_t, Int)], failed: Bool).self
+        ) { group in
+            var iterator = apps.makeIterator()
+            var inFlight = 0
+            while inFlight < maxConcurrentAXRetryEnumerations, let app = iterator.next() {
+                group.addTask { await self.enumerateAppForSnapshot(app, windowServerCounts: windowServerCounts) }
+                inFlight += 1
+            }
+
+            var windows: [(AXWindowRef, pid_t, Int)] = []
+            var failedPIDs: Set<pid_t> = []
+            while let result = await group.next() {
+                windows.append(contentsOf: result.windows)
+                if result.failed {
+                    failedPIDs.insert(result.pid)
+                }
+                if let app = iterator.next() {
+                    group.addTask { await self.enumerateAppForSnapshot(app, windowServerCounts: windowServerCounts) }
+                }
+            }
+            return (windows, failedPIDs)
+        }
     }
 
     // Diagnostic: after a full rescan enumerates AX windows, cross-check each pid's

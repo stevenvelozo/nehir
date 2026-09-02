@@ -28,7 +28,7 @@ final class ViewportInsetController {
     /// Preset per-side zoom levels the Deck key cycles through (fraction of screen width per side).
     /// 0 = off (identity). Kept small so a "100%" column stays clearly dominant while its neighbors
     /// peek. Tunable set, not magic constants tied to one screen size — each is a fraction.
-    static let zoomLevels: [CGFloat] = [0, 0.05, 0.10, 0.15, 0.20]
+    static let zoomLevels: [CGFloat] = [0, 0.02, 0.05, 0.10, 0.15, 0.20]
 
     init(controller: WMController) {
         self.controller = controller

@@ -129,6 +129,7 @@ extension NiriLayoutEngine {
 
         if let existingColumn = claimEmptyColumnIfWorkspaceEmpty(in: root) {
             initializeNewColumnWidth(existingColumn, in: workspaceId)
+            applyInitialColumnWidthOverride(existingColumn, token: token)
             let windowNode = NiriWindow(token: token)
             existingColumn.appendChild(windowNode)
             tokenToNode[token] = windowNode
@@ -157,6 +158,7 @@ extension NiriLayoutEngine {
 
         let newColumn = NiriContainer()
         initializeNewColumnWidth(newColumn, in: workspaceId)
+        applyInitialColumnWidthOverride(newColumn, token: token)
         if let refCol = referenceColumn {
             root.insertAfter(newColumn, reference: refCol)
         } else {

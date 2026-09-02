@@ -97,6 +97,7 @@ final class ControlDeckController: NSObject {
             self?.alignInteractionMonitor()
             self?.syncLayoutSelectionToCommandTarget(for: command)
             _ = self?.wmController?.commandHandler.performCommand(command)
+            self?.rememberCreateWidth(for: command)
         }
         model.applyRegion = { [weak self] region in self?.resizeFocusedWindow(to: region) }
         model.toggleFloat = { [weak self] in self?.toggleFloatWithFit() }
@@ -133,6 +134,22 @@ final class ControlDeckController: NSObject {
               entry.mode == .floating
         else { return }
         _ = controller.toggleWindowFloating(token: token)
+    }
+
+    /// Remember an explicit column-width preset as the focused window's app/title "open width",
+    /// so its next new window opens there. Scoped to `.setColumnWidth(.setProportion)` — a
+    /// deliberate user width command (⌘D→W), the same signal `retileFocusedIfNeeded` keys on —
+    /// so it never captures an engine-driven width change. Written to whichever rule matches the
+    /// window (most-specific), so a title-scoped exception (e.g. a Screen Sharing launcher)
+    /// remembers independently of the broad app rule.
+    private func rememberCreateWidth(for command: HotkeyCommand) {
+        guard case let .setColumnWidth(.setProportion(percent)) = command else { return }
+        guard let controller = wmController,
+              let token = controller.managedCommandTargetToken(),
+              let bundleId = NSRunningApplication(processIdentifier: token.pid)?.bundleIdentifier
+        else { return }
+        let title = AXWindowService.titlePreferFast(windowId: UInt32(token.windowId))
+        NehirShell.windowRules?.rememberCreateWidth(bundleId: bundleId, title: title, percent: Double(percent))
     }
 
     /// Make the Niri layout selection coherent with the window the Deck is acting on.
