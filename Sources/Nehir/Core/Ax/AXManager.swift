@@ -8,6 +8,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import os
 
 private let perAppTimeout: TimeInterval = 0.5
 
@@ -519,32 +520,33 @@ final class AXManager {
     /// contexts back down to a cold state — heals again on the next rescan instead of staying gated off.
     private var didStartFirstFullRescan = false
 
-    func fullRescanEnumerationSnapshot() async -> FullRescanEnumerationSnapshot {
-        AppAXContext.garbageCollect()
-        if let fullRescanEnumerationOverrideForTests {
-            return await fullRescanEnumerationOverrideForTests()
-        }
-        if let currentWindowsAsyncOverride {
-            return .init(windows: await currentWindowsAsyncOverride(), failedPIDs: [])
-        }
+    private static let discoveryLogger = Logger(subsystem: "com.nehir", category: "discovery")
 
+    /// One pass of window/app discovery: the on-screen pids (SkyLight + CGWindowList) and the tracked
+    /// apps that own them, plus the per-pid window-server counts and the raw visible-window list the
+    /// omission diagnostic uses. Pure (no AX enumeration), so the first rescan can cheaply re-run it
+    /// while the window-server connection comes up after a relaunch.
+    private struct CandidateDiscovery {
+        let apps: [NSRunningApplication]
+        let windowServerCounts: [pid_t: Int]
+        let visibleWindows: [WindowServerInfo]
+        let trackedPIDs: Set<pid_t>
+    }
+
+    private func discoverCandidateApps() -> CandidateDiscovery {
         let visibleWindows = SkyLight.shared.queryAllVisibleWindows()
         var pidsWithWindows = Set(visibleWindows.map { $0.pid })
 
-        // Diagnostic only: per-pid on-screen window counts, used below to
-        // cross-check against each app's AX-reported window count and trace
-        // a mismatch (the AX query returning fewer windows than the pid
-        // actually has on screen). Takes the max of the two WindowServer
-        // sources since neither alone is guaranteed complete (see the
-        // CGWindowList comment below).
+        // Per-pid on-screen window counts (diagnostic): cross-checked against each app's AX-reported
+        // count to trace a mismatch. Max of the two WindowServer sources since neither alone is
+        // guaranteed complete (see the CGWindowList note).
         var windowServerCountsByPid: [pid_t: Int] = [:]
         for window in visibleWindows {
             windowServerCountsByPid[window.pid, default: 0] += 1
         }
 
-        // Some Electron apps are missed by the broad SLS enumeration but are
-        // visible through CGWindowList. Add regular rendered windows from the
-        // public API without changing apps already discovered through SLS.
+        // Some Electron apps are missed by the broad SLS enumeration but visible through CGWindowList.
+        // Add regular rendered windows from the public API without changing apps already found via SLS.
         if let cgWindows = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -569,11 +571,49 @@ final class AXManager {
         let apps = NSWorkspace.shared.runningApplications.filter {
             shouldTrack($0) && pidsWithWindows.contains($0.processIdentifier)
         }
-        let trackedPIDs = Set(apps.map(\.processIdentifier))
-        let windowServerCounts = windowServerCountsByPid
+        return CandidateDiscovery(
+            apps: apps,
+            windowServerCounts: windowServerCountsByPid,
+            visibleWindows: visibleWindows,
+            trackedPIDs: Set(apps.map(\.processIdentifier))
+        )
+    }
+
+    func fullRescanEnumerationSnapshot() async -> FullRescanEnumerationSnapshot {
+        AppAXContext.garbageCollect()
+        if let fullRescanEnumerationOverrideForTests {
+            return await fullRescanEnumerationOverrideForTests()
+        }
+        if let currentWindowsAsyncOverride {
+            return .init(windows: await currentWindowsAsyncOverride(), failedPIDs: [])
+        }
 
         let isFirstFullRescan = !didStartFirstFullRescan
         didStartFirstFullRescan = true
+
+        var discovery = discoverCandidateApps()
+        // First-rescan window-server-readiness heal: right after a Sparkle auto-update relaunch the new
+        // process may not be connected to the window server yet — SkyLight.queryAllVisibleWindows() then
+        // returns [] (its connection id is 0), so the first scan finds ZERO apps. Unlike the per-app
+        // timeout case below there are no failedPIDs to retry, so re-run the WHOLE discovery under the
+        // same back-off ladder until it yields candidates. Without this an empty premature scan sticks
+        // as "no windows" until a manual relaunch, since nothing re-runs discovery on a stable desktop.
+        if isFirstFullRescan, discovery.apps.isEmpty {
+            for backoff in firstRescanRetryBackoffNanos {
+                if !discovery.apps.isEmpty || Task.isCancelled { break }
+                Self.discoveryLogger.info("first full rescan found no windows (window server may not be ready) — retrying discovery")
+                try? await Task.sleep(nanoseconds: backoff)
+                discovery = discoverCandidateApps()
+            }
+            if discovery.apps.isEmpty {
+                Self.discoveryLogger.error("first full rescan still found no windows after discovery retries")
+            } else {
+                Self.discoveryLogger.info("first full rescan recovered \(discovery.apps.count, privacy: .public) app(s) after retrying discovery")
+            }
+        }
+
+        let apps = discovery.apps
+        let windowServerCounts = discovery.windowServerCounts
 
         let initial = await withTaskGroup(
             of: (pid: pid_t, windows: [(AXWindowRef, pid_t, Int)], failed: Bool).self
@@ -614,7 +654,11 @@ final class AXManager {
         }
 
         let snapshot = FullRescanEnumerationSnapshot(windows: results, failedPIDs: failedPIDs)
-        recordFullRescanOmissions(snapshot: snapshot, visibleWindows: visibleWindows, trackedPIDs: trackedPIDs)
+        recordFullRescanOmissions(
+            snapshot: snapshot,
+            visibleWindows: discovery.visibleWindows,
+            trackedPIDs: discovery.trackedPIDs
+        )
         return snapshot
     }
 
